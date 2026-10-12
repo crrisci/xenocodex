@@ -47,12 +47,14 @@ jobs:
             .test-artifacts/**/before-restart.json
             .test-artifacts/**/final.json
           include-hidden-files: true
+          retention-days: 7
   release:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,3 +69,13 @@ jobs:
           git archive --format=tar.gz --prefix="xenolith-bridge-$VERSION/" --output="$ARCHIVE" "$GITHUB_REF_NAME"
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
           gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" --verify-tag --prerelease --title "Xenolith Bridge $VERSION" --notes-file .github/RELEASE-NOTES.md
+      - name: Remove superseded oversized diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for ID in 11776204251 11776059484; do
+            if INFO=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID" 2>/dev/null); then
+              echo "$INFO" | jq -e '.workflow_run.head_sha == "2c6b3ce9b7514cb9581b5fb8de0a348b12c1c32c" and (.name | startswith("codex-failure-")) and .size_in_bytes > 67108864'
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ID"
+            fi
+          done

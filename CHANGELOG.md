@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0-alpha.2
+## 0.2.0-alpha.3
 
 - Responses HTTP/SSE adapter for Xenolith wire v1; no runtime dependencies.
 - Text, function/custom tools, single namespaces and validated tool result IDs.
