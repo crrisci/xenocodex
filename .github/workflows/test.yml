@@ -17,14 +17,35 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
       - run: npm install --prefix "$RUNNER_TEMP/codex-cli" @openai/codex@0.162.1
-      - run: npm run test:codex
+      - name: Codex integration
+        run: |
+          ulimit -c 0
+          npm run test:codex 2>&1 | tee .test-artifacts/codex-ci.log
         env:
           XENOLITH_BRIDGE_CODEX_BIN: ${{ runner.temp }}/codex-cli/node_modules/.bin/codex
+      - name: Report integration failure
+        if: failure()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path('.test-artifacts/codex-ci.log')
+          if p.exists():
+              text = p.read_text()[-24000:]
+              text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Codex integration details::' + text)
+          PYCODE
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: codex-failure-${{ matrix.os }}-node-${{ matrix.node }}
-          path: .test-artifacts/
+          path: |
+            .test-artifacts/codex-ci.log
+            .test-artifacts/**/*.stderr.log
+            .test-artifacts/**/*.stdout.jsonl
+            .test-artifacts/**/requests.json
+            .test-artifacts/**/wire.json
+            .test-artifacts/**/before-restart.json
+            .test-artifacts/**/final.json
           include-hidden-files: true
   release:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
