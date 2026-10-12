@@ -13,7 +13,7 @@ test('launcher runs isolated Codex, discovers the engine and exits after complet
   const workspace = join(root, 'workspace');
   await mkdir(workspace);
   const child = spawn(process.execPath, [resolve('src/cli.js'), 'run', '--socket', fake.socketPath,
-    '--codex-home', join(root, 'codex-home'), '--', 'exec', '--skip-git-repo-check', '--ephemeral',
+    '--codex-home', join(root, 'codex-home'), '--codex-bin', process.env.XENOLITH_BRIDGE_CODEX_BIN ?? 'codex', '--', 'exec', '--skip-git-repo-check', '--ephemeral',
     '--sandbox', 'workspace-write', '--json', '-C', workspace, 'Reply briefly.'], {
     cwd: workspace, stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -48,7 +48,7 @@ test('launcher exec resume restores Codex history across separate adapter proces
   t.after(()=>fake.close());
   async function run(args,label) {
     const child=spawn(process.execPath,[resolve('src/cli.js'),'run','--socket',fake.socketPath,'--reuse-kv',
-      '--codex-home',join(root,'codex-home'),'--','exec',...args],{cwd:workspace,stdio:['ignore','pipe','pipe']});
+      '--codex-home',join(root,'codex-home'),'--codex-bin',process.env.XENOLITH_BRIDGE_CODEX_BIN ?? 'codex','--','exec',...args],{cwd:workspace,stdio:['ignore','pipe','pipe']});
     let stdout='',stderr='';
     child.stdout.setEncoding('utf8').on('data',s=>{stdout+=s;});
     child.stderr.setEncoding('utf8').on('data',s=>{stderr+=s;});

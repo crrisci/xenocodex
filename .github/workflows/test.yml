@@ -3,10 +3,13 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: [22, 24]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,3 +20,29 @@ jobs:
       - run: npm run test:codex
         env:
           XENOLITH_BRIDGE_CODEX_BIN: ${{ runner.temp }}/codex-cli/node_modules/.bin/codex
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: codex-failure-${{ matrix.os }}-node-${{ matrix.node }}
+          path: .test-artifacts/
+          include-hidden-files: true
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Publish verified alpha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json')).version")
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+          ARCHIVE="xenolith-bridge-$VERSION.tar.gz"
+          git archive --format=tar.gz --prefix="xenolith-bridge-$VERSION/" --output="$ARCHIVE" "$GITHUB_REF_NAME"
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" --verify-tag --prerelease --title "Xenolith Bridge $VERSION" --notes-file .github/RELEASE-NOTES.md
