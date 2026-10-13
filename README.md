@@ -31,7 +31,6 @@ Non implementa ancora il protocollo Anthropic Messages richiesto da Claude Code.
 Per Codex, l'integrazione con sessioni durabili, ripristino KV tra processi e
 telemetria TUI è nel [fork nativo](https://github.com/crrisci/codex/tree/xenolith-native).
 Il ponte rimane la base per harness che necessitano di traduzione HTTP.
-Vedi [stato della consegna e prossima milestone](docs/STATO-XENOLITH-BRIDGE.md).
 Il prossimo requisito del ponte è portare binding e checkpoint durabili anche qui,
 prima di aggiungere un frontend Anthropic.
 
@@ -259,19 +258,13 @@ registra `exact_result` solo quando supera il confronto rigoroso della risposta.
 La CLI dell'adapter non avvia l'engine pesante: prima verificare binario, memoria,
 socket e proprietario dei pesi senza interrompere sessioni altrui.
 
-Vedi [analisi iniziale](docs/ANALISI-INIZIALE.md) e
-[verifica sul Mac](docs/VERIFICA-MAC.md), [verifica WSL](docs/VERIFICA-WSL.md)
-e [prova sul modello reale](docs/VERIFICA-MODELLO.md), con il successivo
-[test di coding e KV](docs/VERIFICA-CODING-KV.md) e
-[riavvio e compattazione](docs/VERIFICA-RESUME-COMPACT.md).
-
 ## Codex nativo
 
-Il lavoro sull'integrazione nativa in un fork locale di Codex è descritto nella
-[milestone](docs/MILESTONE-CODEX-NATIVO.md) e nelle [istruzioni del fork](native/README.md).
-Il fork conserva licenza Apache-2.0 e avvisi upstream; l'adapter indipendente resta MIT.
-La milestone nativa è verificata su Intel/WSL: [risultati e limiti](docs/VERIFICA-CODEX-NATIVO.md).
+Il [fork Codex con provider Xenolith](https://github.com/crrisci/codex/tree/xenolith-native)
+comunica direttamente sul protocollo wire e conserva le sessioni durabili.
+Le [istruzioni del fork](https://github.com/crrisci/codex/blob/xenolith-native/XENOLITH.md)
+spiegano configurazione, compilazione e rewind. Il fork conserva Apache-2.0 e NOTICE upstream.
 
 ## Licenza
 
-Adapter HTTP: licenza [MIT](LICENSE), come Xenolith. Le patch e i test del fork in `native/` usano [Apache-2.0](native/LICENSE). Copyright (c) 2026 Francesco Pio Crisci.
+Adapter HTTP: licenza [MIT](LICENSE), come Xenolith. Copyright (c) 2026 Francesco Pio Crisci.

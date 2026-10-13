@@ -21,8 +21,6 @@
   "files": [
     "src/",
     "test/",
-    "docs/",
-    "native/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

@@ -1,3 +1,7 @@
 .DS_Store
 .test-artifacts/
 node_modules/
+
+# Private analysis, verification reports and native working artifacts
+/docs/
+/native/
