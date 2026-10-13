@@ -1,0 +1,2 @@
+# Unified diffs contain significant trailing spaces on empty context lines.
+native/patches/*.patch whitespace=-blank-at-eol

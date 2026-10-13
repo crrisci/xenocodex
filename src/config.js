@@ -1,10 +1,11 @@
+// Keep the legacy provider ID so existing Codex transcripts can resume after the rename.
 export function providerArgs(baseUrl, info) {
   const values = {
     model_provider: 'xenolith-bridge', model: info.model,
     model_context_window: info.context_window,
     model_auto_compact_token_limit: Math.floor(info.context_window * 0.75),
     web_search: 'disabled',
-    'model_providers.xenolith-bridge.name': 'Xenolith local',
+    'model_providers.xenolith-bridge.name': 'Xenolith Bridge',
     'model_providers.xenolith-bridge.base_url': baseUrl,
     'model_providers.xenolith-bridge.wire_api': 'responses',
     'model_providers.xenolith-bridge.requires_openai_auth': false,

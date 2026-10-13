@@ -1,15 +1,30 @@
 {
   "name": "xenolith-bridge",
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0-alpha.4",
   "private": true,
-  "description": "Local Responses API adapter for the Xenolith wire protocol",
+  "license": "MIT",
+  "description": "Local Responses HTTP/SSE bridge for the Xenolith wire protocol",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "bin": { "xenolith-bridge": "src/cli.js" },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "xenolith-bridge": "src/cli.js",
+    "xenolith-bridge": "src/cli.js"
+  },
   "scripts": {
     "start": "node src/cli.js",
     "test": "node --test test/*.test.js",
     "test:codex": "node --test test/integration/*.test.js",
     "test:model": "node test/model/smoke.js"
-  }
+  },
+  "files": [
+    "src/",
+    "test/",
+    "docs/",
+    "native/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ]
 }

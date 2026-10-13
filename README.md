@@ -1,23 +1,46 @@
 # Xenolith Bridge
 
-Adapter indipendente tra **Codex CLI** e il protocollo wire v1 di **Xenolith**.
-Codex esegue i tool e mantiene sandbox e approvazioni. Xenolith Bridge traduce le
-richieste Responses in JSONL sul socket Unix di un engine già avviato.
+Ponte HTTP/SSE tra client che parlano **Responses** e il protocollo wire v1 di
+**Xenolith**. In precedenza si chiamava **Xenolith Bridge**. È un programma Node.js >=22,
+senza dipendenze runtime e senza compilazione.
 
-Prima versione verificata con il simulatore sul Mac e nel WSL, e con
-**Gemma reale su Xenolith Lunar Lake**, usando **Codex CLI 0.162.1**.
-Verificati testo SSE, ciclo `exec_command`/risultato, correzione ed esecuzione
-di un programma e riuso KV. Questa alpha aggiunge resume da cronologia e
-compattazione locale testuale di Codex. Verificati sul modello reale anche
-un carrello su più file, la compattazione manuale e il riavvio di client,
-adapter ed engine; compattazione automatica verificata con il simulatore. La proiezione strutturata dei risultati shell
-risolve il problema dei metadati nelle fixture reali verificate.
-Requisito del pacchetto: Node.js >=22;
-nessuna dipendenza runtime e nessuna compilazione necessaria.
+Il client gestisce gli strumenti e le proprie approvazioni; il ponte traduce
+richieste, testo progressivo e risultati sul socket Unix di un engine già avviato.
 
 ```text
-Codex CLI → POST /v1/responses + SSE → Xenolith Bridge → JSONL Unix socket → Xenolith
+Client Responses → HTTP/SSE → Xenolith Bridge → JSONL Unix socket → Xenolith
 ```
+
+## Stato della consegna
+
+**0.2.0-alpha.4: candidato di consegna**, con licenza MIT e nuovo nome.
+Il frontend implementato è Responses HTTP/SSE. L'integrazione è verificata con
+Codex CLI 0.162.1, simulatore e Gemma reale su Xenolith Lunar Lake.
+Non implementa ancora il protocollo Anthropic Messages richiesto da Claude Code.
+
+| Funzionalità | Stato |
+|---|---|
+| Testo SSE, function/custom tools, namespace singolo | Verificati |
+| Lettura, modifica ed esecuzione di un programma | Verificate con modello reale |
+| Resume dalla cronologia del client | Verificato; ricostruisce il contesto |
+| Compattazione locale | Manuale verificata sul modello; automatica con simulatore |
+| Riuso KV con `--reuse-kv` | Disponibile nel processo del ponte |
+| Ripristino KV dopo riavvio del ponte | Non implementato |
+| Frontend Anthropic/Claude Code | Non implementato |
+
+Per Codex, l'integrazione con sessioni durabili, ripristino KV tra processi e
+telemetria TUI è nel [fork nativo](https://github.com/crrisci/codex/tree/xenolith-native).
+Il ponte rimane la base per harness che necessitano di traduzione HTTP.
+Vedi [stato della consegna e prossima milestone](docs/STATO-XENOLITH-BRIDGE.md).
+Il prossimo requisito del ponte è portare binding e checkpoint durabili anche qui,
+prima di aggiungere un frontend Anthropic.
+
+### Migrazione del nome
+
+Il pacchetto e il comando principale diventano `xenolith-bridge`; `xenolith-bridge` resta
+un alias. I comandi `node src/cli.js ...` restano validi. L'identificatore interno del
+provider e le variabili dei test `XENOLITH_BRIDGE_*` sono conservati per riprendere le
+conversazioni esistenti. La directory di lavoro locale non viene rinominata.
 
 ## Avvio
 
@@ -242,6 +265,13 @@ e [prova sul modello reale](docs/VERIFICA-MODELLO.md), con il successivo
 [test di coding e KV](docs/VERIFICA-CODING-KV.md) e
 [riavvio e compattazione](docs/VERIFICA-RESUME-COMPACT.md).
 
+## Codex nativo
+
+Il lavoro sull'integrazione nativa in un fork locale di Codex è descritto nella
+[milestone](docs/MILESTONE-CODEX-NATIVO.md) e nelle [istruzioni del fork](native/README.md).
+Il fork conserva licenza Apache-2.0 e avvisi upstream; l'adapter indipendente resta MIT.
+La milestone nativa è verificata su Intel/WSL: [risultati e limiti](docs/VERIFICA-CODEX-NATIVO.md).
+
 ## Licenza
 
-Nessuna licenza assegnata per ora.
+Adapter HTTP: licenza [MIT](LICENSE), come Xenolith. Le patch e i test del fork in `native/` usano [Apache-2.0](native/LICENSE). Copyright (c) 2026 Francesco Pio Crisci.

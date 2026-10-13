@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startAdapter } from './server.js';
 import { providerArgs } from './config.js';
 
-const help = `Xenolith Bridge 0.2.0-alpha.3 — local Responses / Xenolith v1 adapter
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+const help = `Xenolith Bridge ${version} — local Responses / Xenolith v1 bridge
 
   node src/cli.js serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv]
   node src/cli.js run --socket PATH --codex-home DIR [--reuse-kv] -- exec [Codex arguments]
@@ -21,7 +24,7 @@ Reasoning and multimodal input are unsupported.
 
 async function main(argv) {
   if (!argv.length || argv.includes('--help') || argv.includes('-h')) { console.log(help); return; }
-  if (argv[0] === '--version') { console.log('xenolith-bridge 0.2.0-alpha.3'); return; }
+  if (argv[0] === '--version') { console.log(`xenolith-bridge ${version}`); return; }
   const command = argv.shift();
   if (!['serve', 'run'].includes(command)) throw new Error('Expected serve or run');
   const options = {};
