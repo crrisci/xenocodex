@@ -9,6 +9,8 @@
 - Save uncertainty before mutation and commit bindings before publishing executable tools.
 - Request checkpoints for completed turns when autosave did not confirm persistence.
 - Fail closed on committed state divergence, missing engine sessions and stale crash leases.
+- Add an opt-in direct HTTP persistence battery covering bridge/engine restart and missing snapshots.
+- Verify actual KV restoration with the real engine, retaining evidence privately.
 - Keep internal analysis and verification documents out of Git and public packages.
 
 ## 0.2.0-alpha.4

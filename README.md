@@ -118,8 +118,9 @@ Limits of this first persistent implementation:
 - Committed marker/pending-call divergence stops without mutation. A missing owned
   engine session is currently an error, rather than automatic recreation.
 - Bindings contain conversation text. Keep their directory private and outside Git.
-- Restart semantics are simulator-tested. Actual KV restoration after an engine
-  restart still requires a dedicated real-model test of this bridge implementation.
+- Orderly bridge/engine restart and actual snapshot restoration have been checked
+  with direct HTTP requests on Linux/WSL using a real model. Pending-tool restart
+  remains simulator-tested; abrupt process/engine crash coverage is still incomplete.
 
 ## Optional Codex launcher
 
@@ -173,13 +174,24 @@ XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:model
 ```
 
 Use `XENOLITH_BRIDGE_REUSE_KV=1` for process-local reuse and
-`XENOLITH_BRIDGE_PHASES` to select model-harness phases. That harness does not yet
-validate the new persistent binding mode. Test artifacts remain private and ignored.
+`XENOLITH_BRIDGE_PHASES` to select model-harness phases. That harness covers the process-local mode. Test artifacts remain private and ignored.
+
+The dedicated persistent-mode battery uses HTTP directly and owns isolated bridge
+processes, engine state/cache and bindings:
+
+```sh
+XENOLITH_BIN=/absolute/path/to/xenolith \
+XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:persistence
+```
+
+It checks a bridge restart, an engine restart with `resume.loaded:true`, and a
+missing snapshot with `loaded:false` and zero cache reuse. Real test results and
+prompts are retained privately, outside Git.
 
 ## Next milestones and unsupported features
 
-Next: real-model persistent restart checks, missing/rejected snapshot recovery and
-safe crash-lease recovery. Focus on the bridge core: durable session ownership,
+Next: rejected-snapshot and pending-tool checks with the real engine, plus safe
+crash-lease recovery. Focus on the bridge core: durable session ownership,
 honest cache/checkpoint reports, cancellation, tool/result integrity and deterministic
 recovery without repeated tool effects. No client-specific frontend is planned.
 

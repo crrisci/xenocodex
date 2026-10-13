@@ -9,8 +9,9 @@ A dependency-free Node.js Responses HTTP/SSE bridge to Xenolith wire v1.
   reconstructed from client history rather than automatically replayed.
 - The default remains temporary inference; --reuse-kv remains process-local.
 
-Persistent restart semantics are simulator-tested. Actual cross-process engine KV
-restoration for this bridge mode still needs dedicated real-model verification.
+Orderly bridge/engine restart and actual KV snapshot restoration are verified
+with direct HTTP requests on a real model. Missing snapshots report no cache reuse.
+Pending-tool restart remains simulator-tested; abrupt crash coverage is incomplete.
 Crash leases require manual recovery after verifying the owner has stopped.
 HTTP APIs other than the documented Responses subset, reasoning, media, hosted/deferred tools, nested
 namespaces, constrained JSON and encrypted remote compaction are unsupported.

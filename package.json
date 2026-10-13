@@ -15,7 +15,8 @@
     "start": "node src/cli.js",
     "test": "node --test test/*.test.js",
     "test:codex": "node --test test/integration/*.test.js",
-    "test:model": "node test/model/smoke.js"
+    "test:model": "node test/model/smoke.js",
+    "test:persistence": "node test/model/persistence.js"
   },
   "files": [
     "src/",
