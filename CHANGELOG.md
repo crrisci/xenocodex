@@ -2,6 +2,10 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Add Chat Completions JSON/SSE for text and function tools, sharing session ownership, cancellation and commit-before-publication with Responses.
+- Recover process-crashed v2 state locks through a kernel-held loopback guard; preserve legacy/foreign/corrupt records for manual migration and fail closed on port collisions.
+- Test concurrent owners, suspended/killed processes, directory aliases, Chat tool roundtrips, output limits and cancellation.
+- Add optional OpenAI JavaScript SDK 7.32.0 integration tests and run them in CI, without runtime dependencies or external inference.
 - Accept X-Xenolith-Session as explicit conversation identity in persistent and process-local session modes; reject duplicates, invalid identifiers and conflicts with prompt_cache_key.
 - Use Xenolith Bridge consistently for the package, command and provider; remove compatibility aliases and use XENOLITH_BRIDGE_* test variables.
 - Write the public README in English and state the supported HTTP contract and client-independent scope.
@@ -9,10 +13,10 @@
 - Reopen owned sessions and preserve native pending tool IDs after orderly bridge restart.
 - Save uncertainty before mutation and commit bindings before publishing executable tools.
 - Request checkpoints for completed turns when autosave did not confirm persistence.
-- Fail closed on committed state divergence, missing engine sessions and stale crash leases.
+- Fail closed on committed state divergence, missing engine sessions and incompatible lock metadata.
 - Add an opt-in direct HTTP persistence battery covering bridge/engine restart and missing snapshots.
 - Verify actual KV restoration with the real engine, retaining evidence privately.
-- Test pending-tool continuity after SIGKILL and manual lease recovery with the simulator; retain fail-closed stale leases.
+- Test pending-tool continuity after SIGKILL and automatic lease recovery with the simulator.
 - Test recovery after a lost tool-result acknowledgement by rebuilding supplied history on the same session instead of repeating append.
 - Keep internal analysis and verification documents out of Git and public packages.
 

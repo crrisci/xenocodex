@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { request as httpRequest } from 'node:http';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { readFile, readdir, writeFile, stat, unlink } from 'node:fs/promises';
+import { readFile, readdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { startAdapter } from '../src/server.js';
 import { startFakeWire, description, done } from './helpers/fake-wire.js';
@@ -182,7 +182,7 @@ test('binding write failure withholds executable tool items', async t => {
 
 
 for (const abrupt of [false, true]) {
-test(`persistent tool binding survives two actual CLI processes (${abrupt ? 'SIGKILL and manual lease recovery' : 'orderly shutdown'})`, { timeout: 15000 }, async t => {
+test(`persistent tool binding survives two actual CLI processes (${abrupt ? 'SIGKILL and automatic lease recovery' : 'orderly shutdown'})`, { timeout: 15000 }, async t => {
   let turn = 0;
   const s = await setup(t, async ({ send }) => {
     if (++turn === 1) {
@@ -220,10 +220,7 @@ test(`persistent tool binding survives two actual CLI processes (${abrupt ? 'SIG
     const leasePath = join(s.stateDir, '.bridge.lock');
     const lease = JSON.parse(await readFile(leasePath, 'utf8'));
     assert.equal(lease.pid, first.child.pid);
-    // Recovery remains deliberately manual: the owner has demonstrably exited.
-    await assert.rejects(startAdapter({ socketPath: s.fake.socketPath, stateDir: s.stateDir }), /locked/);
     assert.deepEqual((await s.record()).value, saved.value);
-    await unlink(leasePath);
   } else await stop(first.child);
   const second = await start();assert.notEqual(second.child.pid, first.child.pid);
   const continued = await post(second, { ...base, tools: [tool], input: [...base.input, call,

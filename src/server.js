@@ -7,6 +7,7 @@ import { ResponseStream } from './responses.js';
 import { SessionCache } from './sessions.js';
 import { PersistentSessionCache } from './persistent-sessions.js';
 import { sessionKey } from './session-key.js';
+import { translateChat, ChatStream } from './chat.js';
 
 export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 1024 * 1024,
   maxOutputTokens = 4096, heartbeatMs = 15000, generationTimeoutMs = 600000, maxConcurrent = 4,
@@ -40,7 +41,8 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
     const path = req.url?.split('?')[0];
     if (req.method === 'GET' && path === '/healthz') return json(res, 200, { ok: true, model: info.model, protocol: info.protocol });
     if (req.method === 'GET' && path === '/v1/models') return json(res, 200, { object: 'list', data: [{ id: info.model, object: 'model', owned_by: 'xenolith' }] });
-    if (req.method !== 'POST' || path !== '/v1/responses') return json(res, 404, errorBody(new AdapterError('unsupported_endpoint', 'Only POST /v1/responses is implemented', 404)));
+    const chat = path === '/v1/chat/completions';
+    if (req.method !== 'POST' || (!chat && path !== '/v1/responses')) return json(res, 404, errorBody(new AdapterError('unsupported_endpoint', 'Supported inference endpoints: POST /v1/responses and POST /v1/chat/completions', 404)));
     if (active >= maxConcurrent) return json(res, 429, errorBody(new AdapterError('busy', 'Adapter concurrency limit reached', 429)));
     active++;
     let wire, stream, heartbeat, lease, translated, terminal, committed = false;
@@ -63,7 +65,7 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
       catch { throw new AdapterError('invalid_request', 'Malformed JSON request'); }
       // Optional diagnostics hook for tests; production does not log prompts or headers.
       await onRequest?.({ method: req.method, path, body });
-      translated = translateRequest(body, info, { maxOutputTokens });
+      translated = (chat ? translateChat : translateRequest)(body, info, { maxOutputTokens });
       const key = sessionKey(req, body, { enabled: Boolean(sessions), persistent: Boolean(stateDir) });
       wire = await WireConnection.open(socketPath);
       wires.add(wire);
@@ -77,20 +79,28 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
         wire = lease.wire;
       }
       wires.add(wire);
-      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
-      res.flushHeaders();
-      heartbeat = setInterval(() => { if (!res.destroyed && !res.writableNeedDrain) res.write(': xenolith-bridge heartbeat\n\n'); }, heartbeatMs);
-      stream = new ResponseStream(info.model, translated.registry, async event => {
+      const streaming = !chat || translated.streaming;
+      if (streaming) {
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
+        res.flushHeaders();
+        heartbeat = setInterval(() => { if (!res.destroyed && !res.writableNeedDrain) res.write(': xenolith-bridge heartbeat\n\n'); }, heartbeatMs);
+      }
+      const send = async (event, status = 200) => {
         if (res.destroyed) return;
-        if (!res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)) {
+        if (!streaming) return json(res, status, event);
+        const frame = chat ? `data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`
+          : `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+        if (!res.write(frame)) {
           // 'close' also releases a writer whose peer disappeared during drain.
           await new Promise(resolve => {
             const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
             res.once('drain', done); res.once('close', done);
           });
         }
-      });
+      };
+      stream = chat ? new ChatStream(info.model, translated.registry, send, translated)
+        : new ResponseStream(info.model, translated.registry, send);
       await stream.start();
       for await (const event of wire.stream(lease?.request ?? translated.request, { signal: abort.signal, timeoutMs: generationTimeoutMs })) {
         await onWireEvent?.(event);

@@ -1,6 +1,6 @@
 # Xenolith Bridge
 
-A local HTTP/SSE bridge between Responses-compatible clients and the Xenolith
+A local HTTP/SSE bridge between Responses or Chat Completions clients and the Xenolith
 wire v1 protocol. The client runs tools and manages its own approvals; the bridge
 translates inference requests and results over a Unix socket to an existing engine.
 
@@ -8,27 +8,28 @@ Requires **Node.js >=22**. No runtime dependencies or compilation are needed.
 The bridge does not start or stop Xenolith.
 
 ```text
-Responses client → HTTP/SSE → Xenolith Bridge → Unix socket / JSONL → Xenolith
+Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix socket / JSONL → Xenolith
 ```
 
 ## Current status
 
-**0.3.0-alpha.1 — development version.** The supported HTTP contract is Responses
-HTTP/SSE. Codex CLI 0.162.1 is the reference client used for integration tests.
+**0.3.0-alpha.1 — development version.** Supported HTTP contracts are a Responses
+streaming subset and a Chat Completions text/function-tool subset (streaming or JSON).
+Codex CLI 0.162.1 is the reference Responses client used for integration tests.
 Compatibility with other clients must be checked against their actual requests.
 
 - Progressive text, function/custom tools, one namespace level and validated tool results.
 - Bounded process-local KV reuse with `--reuse-kv`.
 - Experimental persistent session bindings with `--state-dir`: reopen owned sessions
-  after an orderly bridge restart, preserve pending native tool IDs and checkpoint
+  after a bridge restart or process crash, preserve pending native tool IDs and checkpoint
   completed turns before publishing completion to the client.
 - Resume from client history and local text compaction with compatible instructions.
 - Explicit failures for unsupported requests and uncertain wire operations.
 
 The user chooses and configures the client. The bridge translates the supported
 HTTP contract into Xenolith wire operations; it does not choose an agent, execute
-tools or provide an agent interface. Clients must speak the documented Responses
-subset or use their own compatible adapter. Other HTTP APIs are not implemented.
+tools or provide an agent interface. Clients must speak one of the documented
+subsets or use their own compatible adapter. Other HTTP APIs are not implemented.
 For Codex itself, the [native Xenolith fork](https://github.com/crrisci/codex/tree/xenolith-native)
 provides direct wire integration and local inference telemetry in the TUI.
 
@@ -49,6 +50,7 @@ Endpoints:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/v1/responses` | Streaming inference; requires `stream:true` |
+| POST | `/v1/chat/completions` | Text/function inference; JSON by default, SSE with `stream:true` |
 | GET | `/v1/models` | Served model |
 | GET | `/healthz` | Initial discovery/readiness information |
 
@@ -65,6 +67,43 @@ persistent bindings. Client selection and client configuration remain up to you.
 
 Every inference checks the engine again. A change in model/context/output capacity
 requires restarting the bridge. The request must name the exact served model.
+
+## Chat Completions subset
+
+```sh
+curl -N http://127.0.0.1:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"YOUR_SERVED_MODEL","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Supported inputs are text messages (strings or `type:text` parts), initial
+system/developer instructions, assistant function calls and `role:tool` results
+matched by `tool_call_id` in call order. Send the complete transcript on every turn.
+Tools use `{"type":"function","function":{"name":"...","parameters":{...}}}`;
+an omitted parameter schema describes a function with no parameters.
+
+Supported controls are `temperature`, `top_p`, either `max_tokens` or
+`max_completion_tokens`, `parallel_tool_calls`, and `tool_choice:auto|none`.
+Only one choice (`n:1`), text output and non-strict function schemas are supported.
+`tool_choice:none` disables current tool declarations while preserving historical
+calls and results. Reasoning, media, stop sequences, nonzero penalties, logprobs,
+forced tool choices, strict schemas and unknown fields are rejected explicitly.
+Null SDK history annotations (`refusal`, `parsed`, `parsed_arguments`) are accepted;
+non-null values are unsupported.
+
+With `stream:true`, data-only SSE chunks carry `chat.completion.chunk` objects and
+end with `[DONE]`. Tool chunks appear only after the native transaction and any
+persistent binding have committed. `stream_options.include_usage:true` adds a final
+usage chunk with empty `choices`. Streaming failures emit an `error` object followed
+by `[DONE]`, without a successful finish reason. Without streaming, the response is
+a `chat.completion` JSON object or an HTTP error. Engine abortion is an error;
+an output limit produces `finish_reason:length`.
+
+Both endpoints share the same session engine, cancellation and tool validation.
+They accept `prompt_cache_key` or `X-Xenolith-Session` in session modes. The wire
+simulator tests this HTTP contract; compatibility with a particular coding harness
+still requires checking that harness's requests.
+Protocol reference: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
 
 ## Session modes
 
@@ -116,7 +155,7 @@ whitespace or commas. If `prompt_cache_key` is also supplied, both values must m
 Duplicate headers and conflicting values are rejected before contacting the engine.
 The header requires `--state-dir` or `--reuse-kv`; it does not enable persistence by
 itself. It is a conversation key, not authentication, and clients must still send
-the full supported transcript. Other HTTP protocols are not enabled by this header.
+the full supported transcript. The header works on both implemented inference endpoints.
 
 Bindings are written atomically with file/directory fsync and private permissions.
 Mutations are recorded as in-flight before sending them. A validated terminal event
@@ -129,9 +168,21 @@ checkpoint reporting `saved:false` does not mean a snapshot was restored.
 
 Limits of this first persistent implementation:
 
-- One bridge process may own a state directory. A crashed directory lease is not
-  reclaimed automatically: verify that the previous process has stopped before
-  removing `.bridge.lock`. Never remove a live owner's lease.
+- One bridge process may own a state directory. On local macOS/Linux filesystems,
+  a kernel-held loopback guard automatically releases ownership after process exit,
+  including SIGKILL. A suspended process retains ownership. `.bridge.lock` remains
+  as versioned metadata after shutdown; its presence alone does not mean it is busy.
+  The guard reserves one deterministic port in `127.0.0.1:49152–65535`, derived from
+  the directory's device/inode so path aliases cannot bypass ownership. It carries
+  no inference traffic and immediately closes incoming connections. A port collision
+  refuses startup without modifying state; it never chooses an uncoordinated fallback.
+  This is for a dedicated **local directory on one host and one network namespace**.
+  Shared/network filesystems and access from different containers/network namespaces
+  are unsupported. Never remove or replace an active state directory or its metadata.
+- Legacy, corrupt or foreign `.bridge.lock` records are not automatically overwritten.
+  For migration, stop every bridge using that directory, preserve its contents, then
+  remove only `.bridge.lock` and start the new version. Do not do this while an owner
+  is running. Session binding files and engine state/cache must be retained.
 - Interrupted mutations rebuild from the supplied client transcript; the bridge
   does not execute or replay tools. Uncommitted streamed output is not recoverable.
   Simulator tests cover a connection lost after accepting a tool result but before
@@ -144,8 +195,9 @@ Limits of this first persistent implementation:
 - Orderly bridge/engine restart and actual snapshot restoration have been checked
   with direct HTTP requests on Linux/WSL using a real model. Pending-tool restart
   remains simulator-tested, including a bridge killed with SIGKILL followed by
-  manual lease recovery and submission of the saved tool result. Automatic lease
-  recovery and abrupt engine crashes remain unverified.
+  automatic lease recovery and submission of the saved tool result. The new lock
+  and Chat frontend have local simulator coverage; abrupt engine crashes and pending
+  tools across a real engine restart still need hardware verification.
 
 ## Optional Codex launcher
 
@@ -173,7 +225,7 @@ native `done` event; failed or incomplete calls are not exposed as executable ou
 Recognized Codex shell wrappers preserve stdout separately from execution metadata;
 unknown wrappers and other tool output remain unchanged.
 
-Responses usage represents request computation; `xenolith_usage` preserves native
+API usage represents request computation; `xenolith_usage` preserves native
 counters, whose context total can differ from that sum. Missing terminal events,
 wire errors and timeouts produce failures rather than fabricated success.
 HTTP disconnects send best-effort cancellation and drain the terminal exchange.
@@ -183,12 +235,20 @@ HTTP disconnects send best-effort cancellation and drain the terminal exchange.
 ```sh
 npm test
 XENOLITH_BRIDGE_CODEX_BIN=/absolute/path/to/codex npm run test:codex
+npm install --prefix .test-artifacts/chat-sdk --ignore-scripts openai@7.32.0
+npm run test:chat
 ```
 
 Unit tests use a wire simulator. Installed-client tests exercise actual requests,
 progressive output, tools, resume and compaction with Codex 0.162.1. Persistent
 binding tests include orderly restart, pending tool IDs, divergent markers,
-uncertain generation and persistence failure before tool publication.
+uncertain generation and persistence failure before tool publication. Lock tests use
+real competing processes, SIGSTOP/SIGKILL, path aliases and an occupied guard port.
+Chat tests cover JSON/SSE, an actual file-read result, restart, cancellation and errors.
+The optional SDK tests use OpenAI's JavaScript SDK 7.32.0 against the local simulator,
+with no external inference. To use another installation, set
+`XENOLITH_BRIDGE_OPENAI_SDK` to its absolute `openai/index.mjs` path. The SDK is a test
+dependency only. These checks also run in the Linux/macOS, Node 22/24 CI matrix.
 
 The opt-in model harness requires Linux, sufficient free memory and exclusive use
 of an engine it starts in private directories:
@@ -215,10 +275,12 @@ prompts are retained privately, outside Git.
 
 ## Next milestones and unsupported features
 
-Next: rejected-snapshot and pending-tool checks with the real engine, plus safe
-crash-lease recovery. Focus on the bridge core: durable session ownership,
-honest cache/checkpoint reports, cancellation, tool/result integrity and deterministic
-recovery without repeated tool effects. No client-specific frontend is planned.
+Next: verify the new lock and Chat path on Linux with the real engine, including
+pending tools and rejected snapshots; then capture requests from a second coding
+harness and close concrete compatibility gaps. Missing owned engine sessions still
+fail explicitly; automatic recreation and stronger crash coverage are future work.
+The focus remains durable sessions, honest cache/checkpoint reports, cancellation
+and tool/result integrity. No client-specific frontend is planned.
 
 Reasoning/history reasoning, images/audio, hosted/deferred tools, nested namespaces,
 constrained JSON/verbosity, compressed requests, WebSocket, `previous_response_id`,

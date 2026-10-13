@@ -24,6 +24,11 @@ jobs:
               raise SystemExit('Private paths must not be tracked: ' + forbidden)
           PYCODE
       - run: npm test
+      - run: npm install --prefix "$RUNNER_TEMP/chat-sdk" --ignore-scripts openai@7.32.0
+      - name: Chat SDK integration
+        run: npm run test:chat
+        env:
+          XENOLITH_BRIDGE_OPENAI_SDK: ${{ runner.temp }}/chat-sdk/node_modules/openai/index.mjs
       - run: npm install --prefix "$RUNNER_TEMP/codex-cli" @openai/codex@0.162.1
       - name: Codex integration
         run: |

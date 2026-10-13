@@ -4,28 +4,20 @@ import { resolve, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { AdapterError } from './errors.js';
+import { acquireStateLock } from './state-lock.js';
 
 const failure = message => new AdapterError('session_state_error', message, 503);
 const marker = value => Number.isSafeInteger(value) && value >= 0;
 const identity = request => ({ system: request.system ?? '', tools: request.tools });
 
-// A dedicated directory has one writer. Crashed directory leases fail closed:
-// they are never reclaimed automatically on the basis of a PID or timestamp.
+// A dedicated local directory has one writer, protected by a kernel-held guard.
 export class PersistentSessionCache {
   static async create(socketPath, info, stateDir, options = {}) {
     const cache = new PersistentSessionCache(socketPath, info, stateDir, options);
     await mkdir(cache.directory, { recursive: true, mode: 0o700 });
     const directory = await stat(cache.directory);
     if (directory.mode & 0o077) throw failure('The session state directory must have private permissions (0700)');
-    cache.owner = JSON.stringify({ pid: process.pid, token: randomUUID() });
-    cache.lockPath = join(cache.directory, '.bridge.lock');
-    try { cache.lock = await open(cache.lockPath, 'wx', 0o600); }
-    catch (error) {
-      if (error.code === 'EEXIST') throw failure('Session state is locked. Verify the previous bridge has stopped before removing .bridge.lock');
-      throw error;
-    }
-    try { await cache.lock.writeFile(cache.owner); await cache.lock.sync(); }
-    catch (error) { await cache.close(); throw error; }
+    cache.lock = await acquireStateLock(cache.directory);
     return cache;
   }
 
@@ -174,7 +166,6 @@ export class PersistentSessionCache {
     for (const entry of [...this.entries.values()]) await this.dispose(entry);
     if (this.lock) {
       await this.lock.close(); this.lock = undefined;
-      if (await readFile(this.lockPath, 'utf8') === this.owner) await unlink(this.lockPath);
     }
   }
 }
