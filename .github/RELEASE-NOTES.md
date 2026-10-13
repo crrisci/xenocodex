@@ -12,7 +12,7 @@ A dependency-free Node.js Responses HTTP/SSE bridge to Xenolith wire v1.
 Persistent restart semantics are simulator-tested. Actual cross-process engine KV
 restoration for this bridge mode still needs dedicated real-model verification.
 Crash leases require manual recovery after verifying the owner has stopped.
-Anthropic Messages / Claude Code, reasoning, media, hosted/deferred tools, nested
+HTTP APIs other than the documented Responses subset, reasoning, media, hosted/deferred tools, nested
 namespaces, constrained JSON and encrypted remote compaction are unsupported.
 
 Requires Node.js >=22. MIT. No private reports, model weights, snapshots or credentials

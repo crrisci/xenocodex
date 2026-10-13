@@ -13,7 +13,7 @@ Responses client → HTTP/SSE → Xenolith Bridge → Unix socket / JSONL → Xe
 
 ## Current status
 
-**0.3.0-alpha.1 — development version.** The implemented frontend is Responses
+**0.3.0-alpha.1 — development version.** The supported HTTP contract is Responses
 HTTP/SSE. Codex CLI 0.162.1 is the reference client used for integration tests.
 Compatibility with other clients must be checked against their actual requests.
 
@@ -25,8 +25,10 @@ Compatibility with other clients must be checked against their actual requests.
 - Resume from client history and local text compaction with compatible instructions.
 - Explicit failures for unsupported requests and uncertain wire operations.
 
-**Anthropic Messages and Claude Code are not supported yet.** A separate frontend
-is required; pointing Claude Code at the current Responses endpoint is insufficient.
+The user chooses and configures the client. The bridge translates the supported
+HTTP contract into Xenolith wire operations; it does not choose an agent, execute
+tools or provide an agent interface. Clients must speak the documented Responses
+subset or use their own compatible adapter. Other HTTP APIs are not implemented.
 For Codex itself, the [native Xenolith fork](https://github.com/crrisci/codex/tree/xenolith-native)
 provides direct wire integration and local inference telemetry in the TUI.
 
@@ -49,6 +51,17 @@ Endpoints:
 | POST | `/v1/responses` | Streaming inference; requires `stream:true` |
 | GET | `/v1/models` | Served model |
 | GET | `/healthz` | Initial discovery/readiness information |
+
+A client can send a text request directly, without the optional launcher:
+
+```sh
+curl -N http://127.0.0.1:8080/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"YOUR_SERVED_MODEL","stream":true,"prompt_cache_key":"YOUR_CONVERSATION_ID","input":"Hello"}'
+```
+
+Use the served model from `/v1/models` and a stable conversation key when using
+persistent bindings. Client selection and client configuration remain up to you.
 
 Every inference checks the engine again. A change in model/context/output capacity
 requires restarting the bridge. The request must name the exact served model.
@@ -166,9 +179,9 @@ validate the new persistent binding mode. Test artifacts remain private and igno
 ## Next milestones and unsupported features
 
 Next: real-model persistent restart checks, missing/rejected snapshot recovery and
-safe crash-lease recovery. Then add an Anthropic frontend with captured client
-requests, streaming text and a complete tool/result cycle before claiming Claude
-Code compatibility.
+safe crash-lease recovery. Focus on the bridge core: durable session ownership,
+honest cache/checkpoint reports, cancellation, tool/result integrity and deterministic
+recovery without repeated tool effects. No client-specific frontend is planned.
 
 Reasoning/history reasoning, images/audio, hosted/deferred tools, nested namespaces,
 constrained JSON/verbosity, compressed requests, WebSocket, `previous_response_id`,

@@ -3,7 +3,7 @@
 ## 0.3.0-alpha.1 (development)
 
 - Use Xenolith Bridge consistently for the package, command and provider; remove compatibility aliases and use XENOLITH_BRIDGE_* test variables.
-- Write the public README in English and separate current support from future frontends.
+- Write the public README in English and state the supported HTTP contract and client-independent scope.
 - Add experimental --state-dir persistent session bindings, atomic private writes and an exclusive directory lease.
 - Reopen owned sessions and preserve native pending tool IDs after orderly bridge restart.
 - Save uncertainty before mutation and commit bindings before publishing executable tools.
