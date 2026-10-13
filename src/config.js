@@ -1,4 +1,3 @@
-// Keep the legacy provider ID so existing Codex transcripts can resume after the rename.
 export function providerArgs(baseUrl, info) {
   const values = {
     model_provider: 'xenolith-bridge', model: info.model,

@@ -1,270 +1,181 @@
 # Xenolith Bridge
 
-Ponte HTTP/SSE tra client che parlano **Responses** e il protocollo wire v1 di
-**Xenolith**. In precedenza si chiamava **Xenolith Bridge**. È un programma Node.js >=22,
-senza dipendenze runtime e senza compilazione.
+A local HTTP/SSE bridge between Responses-compatible clients and the Xenolith
+wire v1 protocol. The client runs tools and manages its own approvals; the bridge
+translates inference requests and results over a Unix socket to an existing engine.
 
-Il client gestisce gli strumenti e le proprie approvazioni; il ponte traduce
-richieste, testo progressivo e risultati sul socket Unix di un engine già avviato.
+Requires **Node.js >=22**. No runtime dependencies or compilation are needed.
+The bridge does not start or stop Xenolith.
 
 ```text
-Client Responses → HTTP/SSE → Xenolith Bridge → JSONL Unix socket → Xenolith
+Responses client → HTTP/SSE → Xenolith Bridge → Unix socket / JSONL → Xenolith
 ```
 
-## Stato della consegna
+## Current status
 
-**0.2.0-alpha.4: candidato di consegna**, con licenza MIT e nuovo nome.
-Il frontend implementato è Responses HTTP/SSE. L'integrazione è verificata con
-Codex CLI 0.162.1, simulatore e Gemma reale su Xenolith Lunar Lake.
-Non implementa ancora il protocollo Anthropic Messages richiesto da Claude Code.
+**0.3.0-alpha.1 — development version.** The implemented frontend is Responses
+HTTP/SSE. Codex CLI 0.162.1 is the reference client used for integration tests.
+Compatibility with other clients must be checked against their actual requests.
 
-| Funzionalità | Stato |
-|---|---|
-| Testo SSE, function/custom tools, namespace singolo | Verificati |
-| Lettura, modifica ed esecuzione di un programma | Verificate con modello reale |
-| Resume dalla cronologia del client | Verificato; ricostruisce il contesto |
-| Compattazione locale | Manuale verificata sul modello; automatica con simulatore |
-| Riuso KV con `--reuse-kv` | Disponibile nel processo del ponte |
-| Ripristino KV dopo riavvio del ponte | Non implementato |
-| Frontend Anthropic/Claude Code | Non implementato |
+- Progressive text, function/custom tools, one namespace level and validated tool results.
+- Bounded process-local KV reuse with `--reuse-kv`.
+- Experimental persistent session bindings with `--state-dir`: reopen owned sessions
+  after an orderly bridge restart, preserve pending native tool IDs and checkpoint
+  completed turns before publishing completion to the client.
+- Resume from client history and local text compaction with compatible instructions.
+- Explicit failures for unsupported requests and uncertain wire operations.
 
-Per Codex, l'integrazione con sessioni durabili, ripristino KV tra processi e
-telemetria TUI è nel [fork nativo](https://github.com/crrisci/codex/tree/xenolith-native).
-Il ponte rimane la base per harness che necessitano di traduzione HTTP.
-Il prossimo requisito del ponte è portare binding e checkpoint durabili anche qui,
-prima di aggiungere un frontend Anthropic.
+**Anthropic Messages and Claude Code are not supported yet.** A separate frontend
+is required; pointing Claude Code at the current Responses endpoint is insufficient.
+For Codex itself, the [native Xenolith fork](https://github.com/crrisci/codex/tree/xenolith-native)
+provides direct wire integration and local inference telemetry in the TUI.
 
-### Migrazione del nome
+## Start the bridge
 
-Il pacchetto e il comando principale diventano `xenolith-bridge`; `xenolith-bridge` resta
-un alias. I comandi `node src/cli.js ...` restano validi. L'identificatore interno del
-provider e le variabili dei test `XENOLITH_BRIDGE_*` sono conservati per riprendere le
-conversazioni esistenti. La directory di lavoro locale non viene rinominata.
-
-## Avvio
-
-Collegamento a un servizio Xenolith già disponibile:
+Start your compiled Xenolith separately, with its model, Unix socket and dedicated
+engine state/cache directories. Then connect the bridge:
 
 ```sh
-node src/cli.js serve --socket /percorso/wire.sock --port 8080
+node src/cli.js serve --socket /absolute/path/wire.sock --port 8080
 ```
 
-Il processo stampa base URL, modello, contesto e limite output ottenuti da
-`describe`. Ascolta esclusivamente su `127.0.0.1`. Con `--port 0`, o senza
-`--port`, il sistema sceglie una porta libera. Non avvia né ferma Xenolith.
-La readiness e `/healthz` riflettono la discovery iniziale; ogni richiesta
-di inferenza verifica nuovamente l'engine.
+The bridge binds to `127.0.0.1`. It prints the base URL, served model and limits
+obtained from `describe`. Omit `--port`, or use `--port 0`, for an available port.
 
-Per avviare anche Codex senza cambiare la sua configurazione personale:
+Endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/responses` | Streaming inference; requires `stream:true` |
+| GET | `/v1/models` | Served model |
+| GET | `/healthz` | Initial discovery/readiness information |
+
+Every inference checks the engine again. A change in model/context/output capacity
+requires restarting the bridge. The request must name the exact served model.
+
+## Session modes
+
+### Temporary requests
+
+Without either session option, each request uses native `ephemeral` inference with
+the complete transcript. No durable binding is created by the bridge.
+
+### Process-local reuse
 
 ```sh
-node src/cli.js run --socket /percorso/wire.sock \
-  --codex-home ./codex-home-isolata -- \
-  exec --ephemeral --skip-git-repo-check --sandbox workspace-write \
-  --json "Leggi README.md e riassumilo brevemente."
+node src/cli.js serve --socket /absolute/path/wire.sock --reuse-kv
 ```
 
-`run` richiede una directory `CODEX_HOME` esplicita: usare una directory dedicata,
-non quella personale. Passa gli override provider solo al processo figlio,
-ignora user config e regole utente/progetto e usa `--no-daemon`. Non copia auth,
-non usa bypass di sandbox e non modifica le copie sorelle. Le approvazioni
-rimangono quelle di Codex. Solo il subprocess Codex posseduto viene terminato
-alla chiusura del launcher. Questa versione del launcher supporta `exec`.
+Requests need a nonempty `prompt_cache_key`. Matching histories reuse owned native
+sessions while the bridge runs. Missing keys use temporary inference. This cache
+is bounded and expires idle entries; normal shutdown deletes only its own sessions.
+It does not restore bindings after restarting the bridge.
 
-Modello e contesto provengono dall'engine; `--max-output-tokens N` limita
-l'output del ponte (default 4096, ulteriormente limitato da `describe.max_output`).
-Un modello locale non presente nel catalogo Codex usa i metadati fallback:
-Codex segnala questo fatto. Non è ancora fornito un catalogo Gemma personalizzato.
+### Persistent bindings (experimental)
 
-## Funzionalità implementate
-
-- `POST /v1/responses` con `stream:true`; `GET /v1/models` e `GET /healthz`.
-- Discovery e validazione wire v1, limiti di frame/corpo e timeout.
-- Testo e cronologia testuale, istruzioni `system`/`developer` iniziali,
-  eventi SSE incrementali, heartbeat e backpressure.
-- Tool function e custom/freeform, namespace singoli con nomi wire reversibili,
-  argomenti JSON e associazione risultati tramite `call_id`.
-- Pubblicazione dei tool completi solo dopo `done.stop:tool_use` riuscito.
-  Il ponte non esegue comandi o tool.
-- Disconnessione HTTP: `cancel` sulla connessione generatrice, lettura dell'ACK
-  e del terminale con timeout. Errori/EOF non vengono trasformati in successo.
-- Errori HTTP prima dello stream e `response.failed` durante lo stream;
-  limite output e aborto producono `response.incomplete`.
-
-Per impostazione predefinita ogni richiesta usa **`ephemeral` con transcript completo**. Il risultato del
-tool eseguito da Codex torna come item di input della richiesta successiva,
-poi viene importato nel transcript Xenolith. Non si creano sessioni durabili
-nell'engine. La mappa
-namespace è ricostruita deterministicamente a ogni richiesta.
-
-### Riuso KV opzionale
+Use a **dedicated private directory**, with permissions `0700`:
 
 ```sh
-node src/cli.js run --socket /percorso/wire.sock --reuse-kv \
-  --codex-home ./codex-home-isolata -- \
-  exec --ephemeral --skip-git-repo-check --sandbox workspace-write \
-  --json "Leggi e correggi il programma."
+node src/cli.js serve --socket /absolute/path/wire.sock \
+  --state-dir /absolute/private/bridge-state
 ```
 
-`--reuse-kv` (anche su `serve`) abilita una cache locale al processo. Solo le
-richieste con `prompt_cache_key` non vuota possono usarla; le altre restano
-ephemeral. La prima richiesta crea una sessione Xenolith esclusiva e importa
-la cronologia con `rebuild`. Le successive usano `append` e `generate` soltanto
-se istruzioni, strumenti e l'intero prefisso coincidono con il turno confermato.
-I risultati vengono associati agli ID nativi, distinti dai `call_id` Responses.
-Qualunque divergenza ricrea la sessione; errori, cancellazione e output incompleto
-la invalidano. Richieste concorrenti per la stessa chiave ricevono 429.
+This mode requires engine kvstore support and a stable, nonempty `prompt_cache_key`
+for every request. It does not silently fall back to temporary inference.
+Keep the same socket/model configuration, binding directory and engine state/cache
+when restarting. The bridge reopens its owned session and checks the committed
+marker and pending calls before appending a compatible continuation.
 
-La cache mantiene al massimo quattro sessioni, rimuove quelle inattive da dieci
-minuti al prossimo accesso e cancella solo le proprie sessioni alla chiusura.
-Non riprende sessioni di altri processi o di esecuzioni precedenti. Un arresto
-forzato può lasciare record e snapshot nel servizio: non vengono cancellati
-automaticamente alla ripartenza. Il riuso effettivo dipende dai contatori del
-runtime, non dal solo successo di `append`.
+Bindings are written atomically with file/directory fsync and private permissions.
+Mutations are recorded as in-flight before sending them. A validated terminal event
+and persisted binding precede publication of executable tools. Shutdown releases
+connections and the directory lease, retaining native sessions and bindings.
 
-### Riavvio e compattazione
+Completed textual turns request a checkpoint if the terminal report did not
+confirm one. `response.xenolith_session` reports the marker and checkpoint; a
+checkpoint reporting `saved:false` does not mean a snapshot was restored.
 
-Per conservare la conversazione **omettere `--ephemeral`** e riutilizzare la
-stessa home dedicata e la stessa sandbox:
+Limits of this first persistent implementation:
+
+- One bridge process may own a state directory. A crashed directory lease is not
+  reclaimed automatically: verify that the previous process has stopped before
+  removing `.bridge.lock`. Never remove a live owner's lease.
+- Interrupted mutations rebuild from the supplied client transcript; the bridge
+  does not execute or replay tools. Uncommitted streamed output is not recoverable.
+- Committed marker/pending-call divergence stops without mutation. A missing owned
+  engine session is currently an error, rather than automatic recreation.
+- Bindings contain conversation text. Keep their directory private and outside Git.
+- Restart semantics are simulator-tested. Actual KV restoration after an engine
+  restart still requires a dedicated real-model test of this bridge implementation.
+
+## Optional Codex launcher
+
+Use a new, dedicated home; the launcher supports `exec` and keeps sandbox/approval
+handling in Codex. It applies provider overrides only to its child process and does
+not copy authentication or modify personal configuration.
 
 ```sh
-node src/cli.js run --socket /percorso/wire.sock --reuse-kv \
-  --codex-home ./codex-home-isolata -- \
-  exec --skip-git-repo-check --sandbox workspace-write --json "Correggi il programma."
-
-node src/cli.js run --socket /percorso/wire.sock --reuse-kv \
-  --codex-home ./codex-home-isolata -- \
-  exec --sandbox workspace-write resume --skip-git-repo-check --json SESSION_ID \
-  "Riprendi e verifica i test."
+node src/cli.js run --socket /absolute/path/wire.sock \
+  --state-dir /absolute/private/bridge-state \
+  --codex-home /absolute/private/client-home -- \
+  exec --skip-git-repo-check --sandbox workspace-write --json \
+  "Read the program, fix it and run its tests."
 ```
 
-Codex salva il transcript nella propria home e lo reinvia dopo `resume`.
-Xenolith Bridge ricostruisce una nuova sessione: **il KV non viene conservato tra
-processi**. Il resume dopo riavvio non usa `previous_response_id` e non richiede
-uno stato persistente dell'adapter. I cambi di sandbox/istruzioni che producono
-messaggi developer intercalati sono ancora rifiutati esplicitamente.
+For resume, use the same client home, sandbox and instruction context. Model/context
+are discovered from the engine; output defaults to 4096 tokens and may be limited
+with `--max-output-tokens N`. A local model absent from Codex's catalogue uses its
+fallback metadata. The provider identifier is `xenolith-bridge`.
 
-Con Codex 0.162.1 questo provider usa la **compattazione locale**: una normale
-richiesta `/v1/responses` genera un riassunto testuale senza strumenti attivi.
-Le chiamate storiche sono importate anche quando il loro catalogo è assente,
-senza autorizzare nuove chiamate a quegli strumenti. Il turno successivo
-ricostruisce la sessione dalla cronologia compatta; il KV del vecchio prefisso
-viene invalidato. La soglia automatica del launcher è il 75% del contesto
-dichiarato dall'engine. La compattazione manuale è verificata tramite
-`thread/compact/start` nell'app-server Codex; il launcher `run` espone `exec`.
-Non viene implementato `/responses/compact` e non vengono inventati blob cifrati.
-La fedeltà del riassunto dipende dal modello.
+## Tools, errors and accounting
 
-I wrapper shell riconosciuti di Codex vengono proiettati come testo JSON con
-`stdout` e `execution` (intestazione originale, exit code o session ID).
-Il contenuto dello stdout, incluse righe che somigliano a metadati, è conservato.
-Formati sconosciuti e altri tool restano invariati. Il prompt spiega al modello
-come usare questi campi; il ponte non filtra la risposta finale del modello.
+The bridge never executes tools. Function/custom calls are buffered until a valid
+native `done` event; failed or incomplete calls are not exposed as executable output.
+Recognized Codex shell wrappers preserve stdout separately from execution metadata;
+unknown wrappers and other tool output remain unchanged.
 
-La proiezione usage è contabilità di calcolo: `input_tokens = input + cache_read`,
-`output_tokens = output`, totale uguale alla somma. L'input può includere replay
-e shadow work e non equivale necessariamente alla lunghezza tokenizzata del
-prompt. `xenolith_usage` conserva i contatori nativi, compreso `total`, che ha
-una semantica diversa. La validazione dei contatori precede la pubblicazione
-dei tool.
+Responses usage represents request computation; `xenolith_usage` preserves native
+counters, whose context total can differ from that sum. Missing terminal events,
+wire errors and timeouts produce failures rather than fabricated success.
+HTTP disconnects send best-effort cancellation and drain the terminal exchange.
 
-## Limiti espliciti
-
-Non supportati: reasoning attivo o item reasoning storici, immagini/audio,
-tool hosted e deferred, Responses Lite/`additional_tools`, namespace annidati,
-output JSON vincolato o verbosity, compressione delle richieste, WebSocket,
-`previous_response_id`, storage Responses, ripristino KV tra processi, rewind,
-compattazione remota cifrata e API diversa dagli endpoint elencati. Le richieste relative
-ricevono un errore esplicito. Non vengono sostituite da inferenza remota.
-
-`reasoning.summary:auto` e `include:["reasoning.encrypted_content"]`, che Codex
-invia anche nel probe locale, sono accettati con reasoning disabilitato:
-non vengono prodotti summary o blob cifrati. `tool_choice` deve essere `auto`.
-Le richieste di reasoning effort diverso da `none` vengono rifiutate.
-
-Gli output dei tool storici devono seguire l'ordine delle chiamate: risultati
-fuori ordine o ID ignoti/duplicati sono rifiutati per evitare associazioni
-errate, soprattutto con chiamate multiple allo stesso nome. Gli schemi function
-sono inoltrati senza semplificazioni: il test reale ha accettato le dichiarazioni
-inviate da Codex ed eseguito `exec_command`, ma non ha esercitato ogni schema.
-La grammatica di un custom tool viene
-descritta nel prompt, non applicata come vincolo di decoding dal ponte.
-La validazione del tool rimane al client.
-
-Il trasporto Xenolith v1 non rappresenta `phase` nella cronologia importata:
-il ponte genera `commentary` per testo con tool e `final_answer` per testo
-con stop normale, ma non conserva una distinta semantica di fase nel prompt
-wire. Cambiamenti di istruzioni developer interleaved vengono rifiutati.
-
-## Test locali
+## Tests
 
 ```sh
 npm test
-npm run test:codex
+XENOLITH_BRIDGE_CODEX_BIN=/absolute/path/to/codex npm run test:codex
 ```
 
-La prima suite usa HTTP reale e un socket Unix simulato per verificare testo,
-Unicode/frammentazione, tool/custom/namespace, errori, limiti, heartbeat e cancel.
-La seconda richiede `codex` nel PATH e verifica:
+Unit tests use a wire simulator. Installed-client tests exercise actual requests,
+progressive output, tools, resume and compaction with Codex 0.162.1. Persistent
+binding tests include orderly restart, pending tool IDs, divergent markers,
+uncertain generation and persistence failure before tool publication.
 
-1. Richieste HTTP effettive della CLI installata, con endpoint di cattura.
-2. Testo attraverso Codex → adapter → wire simulato → SSE → Codex.
-3. Codex esegue `cat input.txt` su una fixture con nonce casuale; il simulatore
-   riceve l'output, ne estrae il nonce e genera la risposta finale. Nessun nonce
-   è presente nel prompt. Si verificano `call_id`, exit code e turno completato.
-4. Launcher, discovery, home isolata e chiusura dopo il completamento.
-5. Resume con `exec resume` dopo la chiusura del launcher.
-6. Compattazione manuale con tool storici, nuovo turno e resume dopo riavvio.
-7. Compattazione automatica attivata dall’usage simulato sopra la soglia.
-
-Tutti gli artefatti restano sotto `.test-artifacts/` nel repository, ignorata
-da Git. Ogni test crea directory/socket propri e chiude solo i propri processi
-e connessioni. Gli artefatti delle prove Codex includono richieste catturate e
-stdout/stderr per diagnosi; il server di produzione non registra i prompt.
-I test non vengono saltati silenziosamente se la CLI manca.
-In un sandbox che vieta `listen`, l'esecuzione deve essere autorizzata per
-socket loopback e Unix locali; non richiede accesso a un servizio d'inferenza remoto.
-
-## Test con modello reale su Intel/WSL
-
-La batteria opt-in avvia il binario esistente e verifica discovery, testo SSE,
-testo Codex, lettura di un nonce, conservazione di intestazioni letterali nel
-file e lettura/modifica/esecuzione di un programma difettoso. I test della
-fixture vengono eseguiti prima e dopo la modifica e devono restare invariati.
-Le risposte finali devono rispettare esattamente il formato richiesto.
+The opt-in model harness requires Linux, sufficient free memory and exclusive use
+of an engine it starts in private directories:
 
 ```sh
-XENOLITH_BIN=/home/simo/dev/xenolith_lnl/xenolith \
-XENOLITH_MODEL=/home/simo/.models/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf \
-npm run test:model
+XENOLITH_BIN=/absolute/path/to/xenolith \
+XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:model
 ```
 
-Per abilitare il riuso nel test: `XENOLITH_BRIDGE_REUSE_KV=1`. Per selezionare prove:
-`XENOLITH_BRIDGE_PHASES=codex_tool,codex_literal,codex_coding`.
-La fase `codex_lifecycle` corregge un carrello su più file con test immutabili,
-compatta, riprende il lavoro e riavvia client, adapter ed engine posseduti. Ogni prova Codex crea
-una propria home/workspace; i turni all'interno della stessa prova possono
-riusare KV. `session-events.jsonl` distingue hit, miss e fallimenti di cleanup.
+Use `XENOLITH_BRIDGE_REUSE_KV=1` for process-local reuse and
+`XENOLITH_BRIDGE_PHASES` to select model-harness phases. That harness does not yet
+validate the new persistent binding mode. Test artifacts remain private and ignored.
 
-Richiede Linux, Codex nel PATH, almeno 21 GiB disponibili e nessun engine
-Xenolith attivo. Usa `--ctx 65536`, socket/state/cache e home Codex dedicati,
-mantiene il lock globale dell'engine e chiude solo i processi che avvia.
-Non compila o installa Xenolith. Conserva `result.json`, log engine, richieste,
-eventi wire, SSE e output Codex sotto `.test-artifacts/real-*`.
+## Next milestones and unsupported features
 
-Restano da ampliare custom tool reali, copertura degli schemi, sampler,
-saturazione del contesto 65536 e prove di coding più estese. Il test reale
-registra `exact_result` solo quando supera il confronto rigoroso della risposta.
-La CLI dell'adapter non avvia l'engine pesante: prima verificare binario, memoria,
-socket e proprietario dei pesi senza interrompere sessioni altrui.
+Next: real-model persistent restart checks, missing/rejected snapshot recovery and
+safe crash-lease recovery. Then add an Anthropic frontend with captured client
+requests, streaming text and a complete tool/result cycle before claiming Claude
+Code compatibility.
 
-## Codex nativo
+Reasoning/history reasoning, images/audio, hosted/deferred tools, nested namespaces,
+constrained JSON/verbosity, compressed requests, WebSocket, `previous_response_id`,
+Responses storage, rewind and encrypted remote compaction are unsupported.
+Unsupported features are rejected explicitly.
 
-Il [fork Codex con provider Xenolith](https://github.com/crrisci/codex/tree/xenolith-native)
-comunica direttamente sul protocollo wire e conserva le sessioni durabili.
-Le [istruzioni del fork](https://github.com/crrisci/codex/blob/xenolith-native/XENOLITH.md)
-spiegano configurazione, compilazione e rewind. Il fork conserva Apache-2.0 e NOTICE upstream.
+## License
 
-## Licenza
-
-Adapter HTTP: licenza [MIT](LICENSE), come Xenolith. Copyright (c) 2026 Francesco Pio Crisci.
+The independent HTTP bridge is [MIT](LICENSE).
+The separate Codex fork retains Apache-2.0 and its upstream notices.

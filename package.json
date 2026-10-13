@@ -1,6 +1,6 @@
 {
   "name": "xenolith-bridge",
-  "version": "0.2.0-alpha.4",
+  "version": "0.3.0-alpha.1",
   "private": true,
   "license": "MIT",
   "description": "Local Responses HTTP/SSE bridge for the Xenolith wire protocol",
@@ -9,7 +9,6 @@
     "node": ">=22"
   },
   "bin": {
-    "xenolith-bridge": "src/cli.js",
     "xenolith-bridge": "src/cli.js"
   },
   "scripts": {

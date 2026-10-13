@@ -10,15 +10,17 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 
 const help = `Xenolith Bridge ${version} — local Responses / Xenolith v1 bridge
 
-  node src/cli.js serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv]
-  node src/cli.js run --socket PATH --codex-home DIR [--reuse-kv] -- exec [Codex arguments]
+  node src/cli.js serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv] [--state-dir DIR]
+  node src/cli.js run --socket PATH --codex-home DIR [--reuse-kv] [--state-dir DIR] -- exec [Codex arguments]
 
 Connects to an existing engine; does not spawn or stop Xenolith.
 run uses an explicit isolated CODEX_HOME and does not load user config/rules.
 Text, function/custom tools, namespaces and HTTP SSE are supported.
 --reuse-kv enables process-local durable KV reuse for matching prompt_cache_key histories.
 Codex persisted resume and local text compaction are supported.
-KV is rebuilt after restart; encrypted remote compaction is unsupported.
+--state-dir enables persistent bindings; requires a stable prompt_cache_key.
+It takes precedence over --reuse-kv.
+Without --state-dir, KV is rebuilt after restart. Remote encrypted compaction is unsupported.
 Reasoning and multimodal input are unsupported.
 `;
 
@@ -33,7 +35,7 @@ async function main(argv) {
     const flag = argv.shift();
     if (flag === '--reuse-kv') { options.reuseKv = true; continue; }
     if (flag === '--') { codexArgs = argv; break; }
-    if (!['--socket', '--port', '--max-output-tokens', '--codex-home', '--codex-bin'].includes(flag) || !argv.length) throw new Error(`Unknown or incomplete option ${flag}`);
+    if (!['--socket', '--port', '--max-output-tokens', '--codex-home', '--codex-bin', '--state-dir'].includes(flag) || !argv.length) throw new Error(`Unknown or incomplete option ${flag}`);
     options[flag.slice(2)] = argv.shift();
   }
   if (!options.socket) throw new Error('--socket is required');
@@ -42,7 +44,7 @@ async function main(argv) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1) throw new Error('Invalid max-output-tokens');
   if (command === 'run' && (!options['codex-home'] || codexArgs[0] !== 'exec')) throw new Error('run requires --codex-home DIR and -- exec [arguments]');
-  const adapter = await startAdapter({ socketPath: resolve(options.socket), port, maxOutputTokens, reuseKv: options.reuseKv });
+  const adapter = await startAdapter({ socketPath: resolve(options.socket), port, maxOutputTokens, reuseKv: options.reuseKv, stateDir: options['state-dir'] });
   let child;
   let stopping = false;
   const stop = async () => {

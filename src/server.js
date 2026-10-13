@@ -5,22 +5,33 @@ import { WireConnection } from './wire.js';
 import { translateRequest } from './translate.js';
 import { ResponseStream } from './responses.js';
 import { SessionCache } from './sessions.js';
+import { PersistentSessionCache } from './persistent-sessions.js';
 
 export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 1024 * 1024,
   maxOutputTokens = 4096, heartbeatMs = 15000, generationTimeoutMs = 600000, maxConcurrent = 4,
-  onRequest, onWireEvent, reuseKv = false, sessionLimit = 4, sessionTtlMs = 600000, onSessionEvent } = {}) {
+  onRequest, onWireEvent, reuseKv = false, stateDir, sessionLimit = 4, sessionTtlMs = 600000, onSessionEvent } = {}) {
   if (!socketPath) throw new Error('A Xenolith socket path is required');
+  if (stateDir !== undefined && (typeof stateDir !== 'string' || !stateDir.trim())) {
+    throw new Error('An explicit nonempty state directory is required');
+  }
   const discovery = await WireConnection.open(socketPath);
   let info;
   try { info = await discovery.describe(); } finally { discovery.close(); }
   const wires = new Set();
-  const sessions = reuseKv ? new SessionCache(socketPath, { limit: sessionLimit, ttlMs: sessionTtlMs,
+  const sessions = stateDir ? await PersistentSessionCache.create(socketPath, info, stateDir, {
+    operationTimeoutMs: generationTimeoutMs, onEvent: onSessionEvent }) : reuseKv ? new SessionCache(socketPath, { limit: sessionLimit, ttlMs: sessionTtlMs,
     operationTimeoutMs: generationTimeoutMs, onEvent: onSessionEvent }) : null;
   let active = 0;
-  const server = createServer((req, res) => { handle(req, res).catch(error => {
+  const handlers = new Set();
+  let closing;
+  const server = createServer((req, res) => {
+    const handling = handle(req, res).catch(error => {
     if (!res.headersSent) json(res, error.status ?? 500, errorBody(error));
     else res.destroy();
-  }); });
+    });
+    handlers.add(handling);
+    handling.then(() => handlers.delete(handling), () => handlers.delete(handling));
+  });
   server.requestTimeout = 30000;
   server.headersTimeout = 15000;
 
@@ -31,7 +42,7 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
     if (req.method !== 'POST' || path !== '/v1/responses') return json(res, 404, errorBody(new AdapterError('unsupported_endpoint', 'Only POST /v1/responses is implemented', 404)));
     if (active >= maxConcurrent) return json(res, 429, errorBody(new AdapterError('busy', 'Adapter concurrency limit reached', 429)));
     active++;
-    let wire, stream, heartbeat, lease, translated, committed = false;
+    let wire, stream, heartbeat, lease, translated, terminal, committed = false;
     const abort = new AbortController();
     const disconnect = () => { if (!res.writableEnded) abort.abort(); };
     res.on('close', disconnect);
@@ -52,13 +63,18 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
       // Optional diagnostics hook for tests; production does not log prompts or headers.
       await onRequest?.({ method: req.method, path, body });
       translated = translateRequest(body, info, { maxOutputTokens });
+      if (stateDir && !(typeof body.prompt_cache_key === 'string' && body.prompt_cache_key.length > 0)) {
+        throw new AdapterError('invalid_request', 'Persistent mode requires a stable prompt_cache_key');
+      }
       wire = await WireConnection.open(socketPath);
+      wires.add(wire);
       const current = await wire.describe();
       if (current.model !== info.model || current.context_window !== info.context_window || current.max_output !== info.max_output) throw new AdapterError('incompatible_protocol', 'Engine changed; restart the adapter', 503);
       if (Buffer.byteLength(JSON.stringify(translated.request)) + 1 > current.max_frame) throw new AdapterError('invalid_request', 'Request exceeds Xenolith max_frame', 413);
       if (abort.signal.aborted) return;
       if (sessions && typeof body.prompt_cache_key === 'string' && body.prompt_cache_key.length > 0) {
         lease = await sessions.prepare(wire, body.prompt_cache_key, translated.request);
+        wires.delete(wire);
         wire = lease.wire;
       }
       wires.add(wire);
@@ -86,11 +102,20 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
           case 'toolcall_end': stream.toolEnd(event); break;
           case 'reasoning_delta': throw new AdapterError('unsupported_feature', 'Unexpected reasoning while reasoning is disabled', 502);
           case 'done':
-            await stream.done(event, body.parallel_tool_calls);
-            committed = ['stop', 'tool_use'].includes(event.stop);
+            terminal = event;
             break;
           // start/progress and unknown nonterminal events are wire diagnostics.
         }
+      }
+      if (terminal && !abort.signal.aborted) {
+        await stream.done(terminal, body.parallel_tool_calls, async () => {
+          if (lease && ['stop', 'tool_use'].includes(terminal.stop)) {
+            await sessions.commit(lease.entry, translated.request, stream, terminal);
+            committed = true;
+            if (stateDir) stream.response.xenolith_session = { marker: lease.entry.record.marker,
+              checkpoint: lease.entry.record.checkpoint ?? null, resume: terminal.resume ?? null };
+          }
+        });
       }
       if (!abort.signal.aborted && !stream.finished) throw new AdapterError('io_error', 'No terminal response from Xenolith', 502);
     } catch (error) {
@@ -103,8 +128,7 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
       if (wire) {
         wires.delete(wire);
         if (lease) {
-          if (committed && !abort.signal.aborted) sessions.commit(lease.entry, translated.request, stream);
-          else await sessions.dispose(lease.entry);
+          if (!committed || stateDir) await sessions.dispose(lease.entry);
         } else wire.close();
       }
       active--;
@@ -115,13 +139,16 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
 
   server.listen(port, '127.0.0.1');
   try { await once(server, 'listening'); }
-  catch (error) { server.close(); throw error; }
+  catch (error) { server.close(); await sessions?.close(); throw error; }
   return { info, server, baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
-    async close() {
-      for (const wire of wires) wire.close();
-      server.closeAllConnections();
-      await new Promise(resolve => server.close(resolve));
-      await sessions?.close();
+    close() {
+      return closing ??= (async () => {
+        for (const wire of wires) wire.close();
+        server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+        await Promise.allSettled([...handlers]);
+        await sessions?.close();
+      })();
     } };
 }
 

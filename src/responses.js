@@ -56,7 +56,7 @@ export class ResponseStream {
     this.calls.set(event.id, { name: event.name, arguments: event.arguments });
   }
 
-  async done(event, parallelToolCalls) {
+  async done(event, parallelToolCalls, beforePublish) {
     if (!['stop', 'tool_use', 'length', 'aborted'].includes(event.stop)) invalid('Unknown Xenolith stop reason');
     if (event.stop === 'tool_use' && (!this.calls.size || [...this.calls.values()].some(c => !c.arguments))) invalid('Incomplete Xenolith tool calls');
     if (event.stop === 'stop' && this.calls.size) invalid('Xenolith emitted calls without tool_use stop');
@@ -65,6 +65,7 @@ export class ResponseStream {
     // Validate all calls before publishing any executable item.
     const tools = event.stop === 'tool_use' ? [...this.calls.entries()].map(([wireId, call]) =>
       this.registry.output(call.name, call.arguments, `${this.response.id}_call_${wireId}`, id('fc'))) : [];
+    await beforePublish?.();
     if (this.message) {
       const part = this.message.content[0];
       await this.emit('response.output_text.done', { output_index: 0, item_id: this.message.id, content_index: 0, text: part.text });
