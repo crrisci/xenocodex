@@ -1,5 +1,5 @@
 name: Test
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   test:
     strategy:
@@ -15,6 +15,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: Keep internal documents out of public source
+        run: |
+          python3 - <<'PYCODE'
+          import subprocess
+          forbidden = subprocess.check_output(['git', 'ls-files', '--', 'docs/', 'native/', '.test-artifacts/'], text=True)
+          if forbidden:
+              raise SystemExit('Private paths must not be tracked: ' + forbidden)
+          PYCODE
       - run: npm test
       - run: npm install --prefix "$RUNNER_TEMP/codex-cli" @openai/codex@0.162.1
       - name: Codex integration
