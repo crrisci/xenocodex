@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { readFile, readdir, writeFile, stat } from 'node:fs/promises';
+import { readFile, readdir, writeFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { startAdapter } from '../src/server.js';
 import { startFakeWire, description, done } from './helpers/fake-wire.js';
@@ -12,10 +12,10 @@ import { testRoot } from './helpers/codex.js';
 const tool = { type: 'function', name: 'read', parameters: { type: 'object', properties: {} } };
 const base = { model: description.model, stream: true, prompt_cache_key: 'stable-conversation',
   input: [{ role: 'user', content: 'hello' }] };
-async function setup(t, generate) {
+async function setup(t, generate, options = {}) {
   const root = await testRoot('persistent');
   const stateDir = join(root, 'bindings');
-  const fake = await startFakeWire(root, { durable: true, persistent: true, generate });
+  const fake = await startFakeWire(root, { ...options, durable: true, persistent: true, generate });
   let adapter;
   const events = [];
   async function start() { adapter = await startAdapter({ socketPath: fake.socketPath, stateDir, onSessionEvent: e => events.push(e) }); return adapter; }
@@ -80,6 +80,37 @@ test('committed marker divergence fails before mutation', async t => {
   assert.ok(!s.fake.requests.slice(before).some(r => ['append', 'rebuild', 'generate', 'create', 'delete'].includes(r.op)));
 });
 
+test('lost tool-result ACK recovers from client history without appending the result twice', async t => {
+  let turn = 0;
+  const s = await setup(t, async ({ send }) => {
+    if (++turn === 1) {
+      await send({ event: 'toolcall_end', id: 57, name: 'read', arguments: {} });
+      await send(done('tool_use'));
+    } else await text({ send });
+  }, { afterAppend: ({ socket }) => socket.destroy() });
+  let adapter = await s.start();
+  const first = await post(adapter, { ...base, tools: [tool] });
+  const call = first.final.response.output[0];assert.equal(call.type, 'function_call');
+  const before = await s.record();
+  const body = { ...base, tools: [tool], input: [...base.input, call,
+    { type: 'function_call_output', call_id: call.call_id, output: 'already-executed-result' }] };
+  const interrupted = await post(adapter, body);
+  assert.ok(interrupted.status !== 200 || interrupted.final?.type === 'response.failed');
+  assert.equal((await s.record()).value.inFlight, true);
+  await s.close();adapter = await s.start();
+  const recovered = await post(adapter, body);
+  assert.equal(recovered.final.type, 'response.completed');
+  assert.ok(!recovered.final.response.output.some(item => item.type === 'function_call'));
+  assert.equal((await s.record()).value.session, before.value.session);
+  assert.equal(s.fake.requests.filter(r => r.op === 'append').length, 1);
+  const rebuilt = s.fake.requests.filter(r => r.op === 'rebuild');
+  assert.equal(rebuilt.length, 2);
+  assert.deepEqual(rebuilt[1].messages.filter(m => m.role === 'tool'),
+    [{ role: 'tool', tool: 'read', text: 'already-executed-result', status: 'ok' }]);
+  assert.ok(s.events.some(e => e.reason === 'interrupted_request'));
+  assert.deepEqual(s.fake.errors, []);
+});
+
 test('interrupted generation rebuilds committed client history on the same session', async t => {
   let turn = 0;const s = await setup(t, async ({ send }) => {
     if (++turn === 1) await send({ event: 'error', code: 'io_error', error: 'uncertain mutation' });else await text({ send });
@@ -113,7 +144,8 @@ test('binding write failure withholds executable tool items', async t => {
 });
 
 
-test('persistent tool binding survives two actual CLI processes', { timeout: 15000 }, async t => {
+for (const abrupt of [false, true]) {
+test(`persistent tool binding survives two actual CLI processes (${abrupt ? 'SIGKILL and manual lease recovery' : 'orderly shutdown'})`, { timeout: 15000 }, async t => {
   let turn = 0;
   const s = await setup(t, async ({ send }) => {
     if (++turn === 1) {
@@ -143,7 +175,19 @@ test('persistent tool binding survives two actual CLI processes', { timeout: 150
   }
   const first = await start();const response = await post(first, { ...base, tools: [tool] });
   const call = response.final.response.output[0];assert.equal(call.type, 'function_call');
-  const saved = await s.record();await stop(first.child);
+  const saved = await s.record();
+  if (abrupt) {
+    const exited = once(first.child, 'exit');first.child.kill('SIGKILL');
+    const [code, signal] = await exited;children.delete(first.child);
+    assert.equal(code, null);assert.equal(signal, 'SIGKILL');
+    const leasePath = join(s.stateDir, '.bridge.lock');
+    const lease = JSON.parse(await readFile(leasePath, 'utf8'));
+    assert.equal(lease.pid, first.child.pid);
+    // Recovery remains deliberately manual: the owner has demonstrably exited.
+    await assert.rejects(startAdapter({ socketPath: s.fake.socketPath, stateDir: s.stateDir }), /locked/);
+    assert.deepEqual((await s.record()).value, saved.value);
+    await unlink(leasePath);
+  } else await stop(first.child);
   const second = await start();assert.notEqual(second.child.pid, first.child.pid);
   const continued = await post(second, { ...base, tools: [tool], input: [...base.input, call,
     { type: 'function_call_output', call_id: call.call_id, output: 'program-output' }] });
@@ -154,3 +198,4 @@ test('persistent tool binding survives two actual CLI processes', { timeout: 150
   assert.equal(s.fake.requests.find(r => r.op === 'append').call_id, 93);
   assert.ok(!s.fake.requests.some(r => ['ephemeral', 'delete'].includes(r.op)));
 });
+}

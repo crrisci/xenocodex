@@ -115,12 +115,18 @@ Limits of this first persistent implementation:
   removing `.bridge.lock`. Never remove a live owner's lease.
 - Interrupted mutations rebuild from the supplied client transcript; the bridge
   does not execute or replay tools. Uncommitted streamed output is not recoverable.
+  Simulator tests cover a connection lost after accepting a tool result but before
+  acknowledging it: recovery rebuilds history instead of appending the result again.
+  Clients must retain completed tool results; this is not an exactly-once execution
+  guarantee for tools or future model-generated calls.
 - Committed marker/pending-call divergence stops without mutation. A missing owned
   engine session is currently an error, rather than automatic recreation.
 - Bindings contain conversation text. Keep their directory private and outside Git.
 - Orderly bridge/engine restart and actual snapshot restoration have been checked
   with direct HTTP requests on Linux/WSL using a real model. Pending-tool restart
-  remains simulator-tested; abrupt process/engine crash coverage is still incomplete.
+  remains simulator-tested, including a bridge killed with SIGKILL followed by
+  manual lease recovery and submission of the saved tool result. Automatic lease
+  recovery and abrupt engine crashes remain unverified.
 
 ## Optional Codex launcher
 

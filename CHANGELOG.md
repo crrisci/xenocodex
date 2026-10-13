@@ -11,6 +11,8 @@
 - Fail closed on committed state divergence, missing engine sessions and stale crash leases.
 - Add an opt-in direct HTTP persistence battery covering bridge/engine restart and missing snapshots.
 - Verify actual KV restoration with the real engine, retaining evidence privately.
+- Test pending-tool continuity after SIGKILL and manual lease recovery with the simulator; retain fail-closed stale leases.
+- Test recovery after a lost tool-result acknowledgement by rebuilding supplied history on the same session instead of repeating append.
 - Keep internal analysis and verification documents out of Git and public packages.
 
 ## 0.2.0-alpha.4

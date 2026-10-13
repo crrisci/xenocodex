@@ -11,7 +11,7 @@ export const done = (stop = 'stop') => ({ event: 'done', stop, usage, marker: nu
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Transport simulator, not a model or a Gemma schema renderer. No tools execute here.
-export async function startFakeWire(root, { info = description, generate, fragment = false, durable = false, persistent = false } = {}) {
+export async function startFakeWire(root, { info = description, generate, afterAppend, fragment = false, durable = false, persistent = false } = {}) {
   const socketPath = join(root, 'w.sock');
   const requests = [];
   const sockets = new Set();
@@ -73,7 +73,10 @@ export async function startFakeWire(root, { info = description, generate, fragme
           void send({ ok: true, marker: 1 });
         } else if (durable && request.op === 'append') {
           sessions.get(session).messages.push(request);
-          void send({ ok: true, marker: 2 });
+          if (afterAppend) {
+            void Promise.resolve().then(() => afterAppend({ request, socket, send }))
+              .catch(error => { errors.push(error);socket.destroy(); });
+          } else void send({ ok: true, marker: 2 });
         } else if (durable && request.op === 'delete') {
           sessions.delete(request.session);
           void send({ ok: true });
