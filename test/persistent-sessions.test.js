@@ -1,6 +1,7 @@
 import test from 'node:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { readFile, readdir, writeFile, stat, unlink } from 'node:fs/promises';
@@ -27,8 +28,8 @@ async function setup(t, generate, options = {}) {
   }
   return { fake, stateDir, start, close, record, events };
 }
-async function post(adapter, body) {
-  const res = await fetch(`${adapter.baseUrl}/responses`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+async function post(adapter, body, headers = {}) {
+  const res = await fetch(`${adapter.baseUrl}/responses`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
   const raw = await res.text();
   const events = raw.split('\n\n').flatMap(f => {
     const line = f.split('\n').find(x => x.startsWith('data: ')); return line ? [JSON.parse(line.slice(6))] : [];
@@ -36,6 +37,42 @@ async function post(adapter, body) {
   return { status: res.status, events, final: events.at(-1), raw };
 }
 const text = async ({ send }) => { await send({ event: 'text_delta', text: 'ok' }); await send(done()); };
+
+test('header session identity persists across restart and isolates identical conversations', async t => {
+  const s = await setup(t, text);let adapter = await s.start();
+  const { prompt_cache_key, ...body } = base;
+  assert.equal((await post(adapter, body, { 'X-Xenolith-Session': 'conversation-A' })).final.type, 'response.completed');
+  const saved = await s.record();await s.close();adapter = await s.start();
+  const next = { ...body, input: [...body.input, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'next' }] };
+  assert.equal((await post(adapter, next, { 'X-Xenolith-Session': 'conversation-A' })).final.type, 'response.completed');
+  assert.equal((await s.record()).value.session, saved.value.session);
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 1);
+  assert.equal(s.fake.requests.filter(r => r.op === 'rebuild').length, 1);
+  assert.equal((await post(adapter, body, { 'X-Xenolith-Session': 'conversation-B' })).final.type, 'response.completed');
+  assert.equal(s.fake.sessions.size, 2);
+  assert.ok(!s.fake.requests.some(r => r.op === 'ephemeral'));
+});
+
+test('conflicting or malformed session headers fail before contacting the engine', async t => {
+  const s = await setup(t, text);const adapter = await s.start();
+  const { prompt_cache_key, ...body } = base;
+  const before = s.fake.requests.length;
+  for (const value of ['', 'two words', 'a,b', 'x'.repeat(513)]) {
+    assert.equal((await post(adapter, body, { 'X-Xenolith-Session': value })).status, 400);
+  }
+  assert.equal((await post(adapter, base, { 'X-Xenolith-Session': 'different' })).status, 400);
+  assert.equal((await post(adapter, { ...body, prompt_cache_key: '   ' })).status, 400);
+  // node:http preserves duplicate field lines, including identical values.
+  const status = await new Promise((resolve, reject) => {
+    const req = httpRequest(`${adapter.baseUrl}/responses`, { method: 'POST', headers: {
+      'content-type': 'application/json', 'X-Xenolith-Session': ['same', 'same'],
+    } }, res => { res.resume();res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);req.end(JSON.stringify(body));
+  });
+  assert.equal(status, 400);
+  assert.equal(s.fake.requests.length, before);
+  assert.equal((await post(adapter, base, { 'X-Xenolith-Session': prompt_cache_key })).final.type, 'response.completed');
+});
 
 test('persistent binding reopens after bridge restart without rebuild or deletion', async t => {
   const s = await setup(t, text);let adapter = await s.start();

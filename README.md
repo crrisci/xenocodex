@@ -79,7 +79,7 @@ the complete transcript. No durable binding is created by the bridge.
 node src/cli.js serve --socket /absolute/path/wire.sock --reuse-kv
 ```
 
-Requests need a nonempty `prompt_cache_key`. Matching histories reuse owned native
+Requests need a nonempty `prompt_cache_key` or `X-Xenolith-Session` header. Matching histories reuse owned native
 sessions while the bridge runs. Missing keys use temporary inference. This cache
 is bounded and expires idle entries; normal shutdown deletes only its own sessions.
 It does not restore bindings after restarting the bridge.
@@ -94,10 +94,29 @@ node src/cli.js serve --socket /absolute/path/wire.sock \
 ```
 
 This mode requires engine kvstore support and a stable, nonempty `prompt_cache_key`
+or `X-Xenolith-Session` header
 for every request. It does not silently fall back to temporary inference.
 Keep the same socket/model configuration, binding directory and engine state/cache
 when restarting. The bridge reopens its owned session and checks the committed
 marker and pending calls before appending a compatible continuation.
+
+For clients that support custom HTTP headers, send a conversation identifier:
+
+```sh
+curl http://127.0.0.1:PORT/v1/responses \
+  -H 'Content-Type: application/json' \
+  -H 'X-Xenolith-Session: conversation-123' \
+  -d '{"model":"YOUR_SERVED_MODEL","stream":true,"input":"Hello"}'
+```
+
+Keep this identifier across turns and restarts, and use a different one for each
+conversation. A header configured globally for all chats does not provide conversation
+isolation. The header accepts one ASCII identifier of 1–512 characters, without
+whitespace or commas. If `prompt_cache_key` is also supplied, both values must match.
+Duplicate headers and conflicting values are rejected before contacting the engine.
+The header requires `--state-dir` or `--reuse-kv`; it does not enable persistence by
+itself. It is a conversation key, not authentication, and clients must still send
+the full supported transcript. Other HTTP protocols are not enabled by this header.
 
 Bindings are written atomically with file/directory fsync and private permissions.
 Mutations are recorded as in-flight before sending them. A validated terminal event

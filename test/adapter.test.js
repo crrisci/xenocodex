@@ -11,9 +11,9 @@ const tool = { type: 'function', name: 'read', description: 'Read', parameters: 
 async function setup(t, options = {}, adapterOptions = {}) {
   const root = await testRoot('unit');
   const fake = await startFakeWire(root, options);
-  t.after(() => fake.close());
-  const adapter = await startAdapter({ socketPath: fake.socketPath, ...adapterOptions });
-  t.after(() => adapter.close());
+  let adapter;
+  t.after(async () => { try { await adapter?.close(); } finally { await fake.close(); } });
+  adapter = await startAdapter({ socketPath: fake.socketPath, ...adapterOptions });
   return { fake, adapter };
 }
 
@@ -31,6 +31,33 @@ async function post(adapter, body = base) {
   const text = await response.text();
   return { response, text, events: eventsOf(text) };
 }
+
+test('explicit session header requires a session mode instead of silently using ephemeral inference', async t => {
+  const { adapter, fake } = await setup(t);
+  const before = fake.requests.length;
+  const response = await fetch(`${adapter.baseUrl}/responses`, { method: 'POST', headers: {
+    'content-type': 'application/json', 'X-Xenolith-Session': 'conversation-A',
+  }, body: JSON.stringify(base) });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error.message, /--state-dir or --reuse-kv/);
+  assert.equal(fake.requests.length, before);
+});
+
+test('explicit session header also enables process-local KV reuse', async t => {
+  const { adapter, fake } = await setup(t, { durable: true }, { reuseKv: true });
+  for (const input of ['hello', [{ role: 'user', content: 'hello' },
+    { role: 'assistant', content: 'Ciao 🌋' }, { role: 'user', content: 'next' }]]) {
+    const response = await fetch(`${adapter.baseUrl}/responses`, { method: 'POST', headers: {
+      'content-type': 'application/json', 'X-Xenolith-Session': 'conversation-A',
+    }, body: JSON.stringify({ ...base, input }) });
+    assert.equal(response.status, 200);
+    assert.equal(eventsOf(await response.text()).at(-1).type, 'response.completed');
+  }
+  assert.equal(fake.requests.filter(r => r.op === 'create').length, 1);
+  assert.equal(fake.requests.filter(r => r.op === 'rebuild').length, 1);
+  assert.ok(fake.requests.some(r => r.op === 'append'));
+  assert.ok(!fake.requests.some(r => r.op === 'ephemeral'));
+});
 
 test('real HTTP streaming arrives before terminal, fragmented UTF-8 survives', async t => {
   let release;

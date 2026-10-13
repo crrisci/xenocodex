@@ -2,6 +2,7 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Accept X-Xenolith-Session as explicit conversation identity in persistent and process-local session modes; reject duplicates, invalid identifiers and conflicts with prompt_cache_key.
 - Use Xenolith Bridge consistently for the package, command and provider; remove compatibility aliases and use XENOLITH_BRIDGE_* test variables.
 - Write the public README in English and state the supported HTTP contract and client-independent scope.
 - Add experimental --state-dir persistent session bindings, atomic private writes and an exclusive directory lease.

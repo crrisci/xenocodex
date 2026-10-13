@@ -6,6 +6,7 @@ import { translateRequest } from './translate.js';
 import { ResponseStream } from './responses.js';
 import { SessionCache } from './sessions.js';
 import { PersistentSessionCache } from './persistent-sessions.js';
+import { sessionKey } from './session-key.js';
 
 export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 1024 * 1024,
   maxOutputTokens = 4096, heartbeatMs = 15000, generationTimeoutMs = 600000, maxConcurrent = 4,
@@ -63,17 +64,15 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
       // Optional diagnostics hook for tests; production does not log prompts or headers.
       await onRequest?.({ method: req.method, path, body });
       translated = translateRequest(body, info, { maxOutputTokens });
-      if (stateDir && !(typeof body.prompt_cache_key === 'string' && body.prompt_cache_key.length > 0)) {
-        throw new AdapterError('invalid_request', 'Persistent mode requires a stable prompt_cache_key');
-      }
+      const key = sessionKey(req, body, { enabled: Boolean(sessions), persistent: Boolean(stateDir) });
       wire = await WireConnection.open(socketPath);
       wires.add(wire);
       const current = await wire.describe();
       if (current.model !== info.model || current.context_window !== info.context_window || current.max_output !== info.max_output) throw new AdapterError('incompatible_protocol', 'Engine changed; restart the adapter', 503);
       if (Buffer.byteLength(JSON.stringify(translated.request)) + 1 > current.max_frame) throw new AdapterError('invalid_request', 'Request exceeds Xenolith max_frame', 413);
       if (abort.signal.aborted) return;
-      if (sessions && typeof body.prompt_cache_key === 'string' && body.prompt_cache_key.length > 0) {
-        lease = await sessions.prepare(wire, body.prompt_cache_key, translated.request);
+      if (sessions && key !== undefined) {
+        lease = await sessions.prepare(wire, key, translated.request);
         wires.delete(wire);
         wire = lease.wire;
       }
