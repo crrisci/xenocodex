@@ -198,6 +198,23 @@ test('Chat and Responses share the same binding for an explicitly identified con
   assert.ok(s.fake.requests.some(r => r.op === 'append' && r.text === 'next'));
 });
 
+for (const stream of [false, true]) {
+  test(`Chat reports a rebuilt missing session without claiming KV restoration (stream:${stream})`, async t => {
+    const s = await setup(t, {}, true);const adapter = await s.start();
+    const first = await request(adapter, { ...base, prompt_cache_key: 'missing' });
+    const assistant = (await first.json()).choices[0].message;s.fake.sessions.clear();
+    const second = await request(adapter, { ...base, stream, prompt_cache_key: 'missing', messages: [
+      ...base.messages, assistant, { role: 'user', content: 'next' },
+    ] });
+    assert.equal(second.status, 200);
+    const raw = await second.text();const final = stream ? chunks(raw).at(-2) : JSON.parse(raw);
+    assert.deepEqual(final.xenolith_session.recovery, {
+      reason: 'session_not_found', source: 'client_history', previous_kv_restored: false,
+    });
+    assert.equal(final.xenolith_session.resume, null);
+  });
+}
+
 test('Chat tool_choice:none removes executable declarations while retaining historical results', async t => {
   const s = await setup(t);const response = await request(await s.start(), { ...base, tool_choice: 'none', tools: [tool], messages: [
     ...base.messages, { role: 'assistant', content: null, tool_calls: [{ id: 'old', type: 'function', function: { name: 'read', arguments: '{}' } }] },

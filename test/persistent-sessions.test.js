@@ -117,6 +117,105 @@ test('committed marker divergence fails before mutation', async t => {
   assert.ok(!s.fake.requests.slice(before).some(r => ['append', 'rebuild', 'generate', 'create', 'delete'].includes(r.op)));
 });
 
+const recovery = { reason: 'session_not_found', source: 'client_history', previous_kv_restored: false };
+const continued = { ...base, input: [...base.input, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'next' }] };
+
+test('missing native session is recreated from complete history with an explicit recovery report', async t => {
+  const s = await setup(t, text);let adapter = await s.start();await post(adapter, base);
+  const before = await s.record();await s.close();s.fake.sessions.delete(before.value.session);
+  const unrelated = 'f'.repeat(32);s.fake.sessions.set(unrelated, { messages: [], marker: 0, pending: [] });
+  adapter = await s.start();const result = await post(adapter, continued);
+  assert.equal(result.final.type, 'response.completed');
+  assert.deepEqual(result.final.response.xenolith_session.recovery, recovery);
+  assert.equal(result.final.response.xenolith_session.resume, null);
+  const after = await s.record();assert.notEqual(after.value.session, before.value.session);
+  assert.equal(after.value.inFlight, false);assert.equal(after.value.recoveryPending, false);
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 2);
+  assert.equal(s.fake.requests.filter(r => r.op === 'rebuild').length, 2);
+  assert.ok(!s.fake.requests.some(r => ['append', 'delete', 'ephemeral'].includes(r.op)));
+  assert.ok(s.fake.sessions.has(unrelated));assert.ok(s.events.some(e => e.reason === 'session_not_found'));
+  const next = await post(adapter, { ...continued, input: [...continued.input,
+    { role: 'assistant', content: 'ok' }, { role: 'user', content: 'more' }] });
+  assert.equal(next.final.type, 'response.completed');assert.equal(next.final.response.xenolith_session.recovery, undefined);
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 2);
+});
+
+test('missing session recovery preserves pending tool results without appending obsolete native IDs', async t => {
+  let turn = 0;const s = await setup(t, async ({ send }) => {
+    if (++turn === 1) { await send({ event: 'toolcall_end', id: 72, name: 'read', arguments: {} });await send(done('tool_use')); }
+    else await text({ send });
+  });
+  const adapter = await s.start();const first = await post(adapter, { ...base, tools: [tool] });
+  const call = first.final.response.output[0];const before = await s.record();s.fake.sessions.delete(before.value.session);
+  const result = await post(adapter, { ...base, tools: [tool], input: [...base.input, call,
+    { type: 'function_call_output', call_id: call.call_id, output: 'already-executed-result' }] });
+  assert.equal(result.final.type, 'response.completed');assert.deepEqual(result.final.response.xenolith_session.recovery, recovery);
+  const rebuilt = s.fake.requests.filter(r => r.op === 'rebuild').at(-1);
+  assert.deepEqual(rebuilt.messages.at(-1), { role: 'tool', tool: 'read', text: 'already-executed-result', status: 'ok' });
+  assert.ok(!s.fake.requests.some(r => r.op === 'append'));
+  assert.ok(!result.final.response.output.some(item => item.type === 'function_call'));
+});
+
+test('missing session with truncated or changed history is refused before creating a replacement', async t => {
+  const s = await setup(t, text);const adapter = await s.start();await post(adapter, base);
+  const before = await s.record();s.fake.sessions.delete(before.value.session);
+  for (const body of [base, { ...continued, instructions: 'changed' }, { ...continued, tools: [tool] }]) {
+    const result = await post(adapter, body);assert.equal(result.status, 503);
+    assert.deepEqual((await s.record()).value, before.value);
+  }
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 1);
+});
+
+test('pending calls cannot be omitted from missing-session recovery', async t => {
+  const s = await setup(t, async ({ send }) => {
+    await send({ event: 'toolcall_end', id: 32, name: 'read', arguments: {} });await send(done('tool_use'));
+  });
+  const adapter = await s.start();await post(adapter, { ...base, tools: [tool] });
+  const before = await s.record();s.fake.sessions.delete(before.value.session);
+  const result = await post(adapter, { ...base, tools: [tool] });assert.equal(result.status, 503);
+  assert.deepEqual((await s.record()).value, before.value);
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 1);
+});
+
+test('open errors and disconnections never trigger session recreation', async t => {
+  const faults = {};const s = await setup(t, text, { faults });let adapter = await s.start();await post(adapter, base);
+  const before = await s.record();
+  for (const fault of ['disconnect', { ok: false, code: 'io_error', error: 'session not found' },
+    { ok: false, code: 'out_of_memory' }, { ok: false, code: 'busy' }, { ok: true, marker: -1, pending: [] }]) {
+    await s.close();faults.open = fault;adapter = await s.start();
+    const result = await post(adapter, continued);assert.notEqual(result.status, 200);
+    assert.deepEqual((await s.record()).value, before.value);
+  }
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 1);
+  assert.equal(s.fake.requests.filter(r => r.op === 'rebuild').length, 1);
+});
+
+test('failed replacement creation preserves the previous binding', async t => {
+  const faults = {};const s = await setup(t, text, { faults });const adapter = await s.start();await post(adapter, base);
+  const before = await s.record();s.fake.sessions.delete(before.value.session);
+  faults.create = { ok: false, code: 'out_of_memory', error: 'no room' };
+  const result = await post(adapter, continued);assert.equal(result.status, 503);
+  assert.deepEqual((await s.record()).value, before.value);
+  delete faults.create;
+  assert.equal((await post(adapter, continued)).final.type, 'response.completed');
+});
+
+test('replacement rebuild failure survives restart and retries the same replacement with recovery diagnostics', async t => {
+  const faults = {};const s = await setup(t, text, { faults });let adapter = await s.start();await post(adapter, base);
+  const before = await s.record();s.fake.sessions.delete(before.value.session);
+  faults.rebuild = { ok: false, code: 'io_error', error: 'interrupted rebuild' };
+  assert.equal((await post(adapter, continued)).status, 502);
+  const replacement = await s.record();assert.notEqual(replacement.value.session, before.value.session);
+  assert.equal(replacement.value.inFlight, true);assert.equal(replacement.value.recoveryPending, true);
+  assert.deepEqual(replacement.value.messages, before.value.messages);
+  await s.close();delete faults.rebuild;adapter = await s.start();
+  assert.equal((await post(adapter, base)).status, 503);
+  const recovered = await post(adapter, continued);assert.equal(recovered.final.type, 'response.completed');
+  assert.deepEqual(recovered.final.response.xenolith_session.recovery, recovery);
+  assert.equal((await s.record()).value.session, replacement.value.session);
+  assert.equal(s.fake.requests.filter(r => r.op === 'create').length, 2);
+});
+
 test('lost tool-result ACK recovers from client history without appending the result twice', async t => {
   let turn = 0;
   const s = await setup(t, async ({ send }) => {

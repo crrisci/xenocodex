@@ -122,7 +122,8 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
             await sessions.commit(lease.entry, translated.request, stream, terminal);
             committed = true;
             if (stateDir) stream.response.xenolith_session = { marker: lease.entry.record.marker,
-              checkpoint: lease.entry.record.checkpoint ?? null, resume: terminal.resume ?? null };
+              checkpoint: lease.entry.record.checkpoint ?? null, resume: terminal.resume ?? null,
+              ...(lease.entry.recovery ? { recovery: lease.entry.recovery } : {}) };
           }
         });
       }

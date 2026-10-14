@@ -2,6 +2,9 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Recreate missing owned native sessions only on explicit session_not_found replies and complete matching client history; preserve pending tool results and report that the previous KV was not restored.
+- Keep replacement recovery durable across rebuild failures and bridge restarts, without recreating sessions for transport, busy or unrelated engine errors.
+- Exercise Aider 0.86.2 with an isolated Chat Completions coding loop: file edit, failed tests, returned feedback and correction. Preserve one native session while rebuilding changed file context; do not infer KV savings from the simulator.
 - Add Chat Completions JSON/SSE for text and function tools, sharing session ownership, cancellation and commit-before-publication with Responses.
 - Recover process-crashed v2 state locks through a kernel-held loopback guard; preserve legacy/foreign/corrupt records for manual migration and fail closed on port collisions.
 - Test concurrent owners, suspended/killed processes, directory aliases, Chat tool roundtrips, output limits and cancellation.
@@ -13,7 +16,7 @@
 - Reopen owned sessions and preserve native pending tool IDs after orderly bridge restart.
 - Save uncertainty before mutation and commit bindings before publishing executable tools.
 - Request checkpoints for completed turns when autosave did not confirm persistence.
-- Fail closed on committed state divergence, missing engine sessions and incompatible lock metadata.
+- Fail closed on committed state divergence, incomplete recovery history and incompatible lock metadata.
 - Add an opt-in direct HTTP persistence battery covering bridge/engine restart and missing snapshots.
 - Verify actual KV restoration with the real engine, retaining evidence privately.
 - Test pending-tool continuity after SIGKILL and automatic lease recovery with the simulator.

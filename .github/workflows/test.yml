@@ -29,6 +29,20 @@ jobs:
         run: npm run test:chat
         env:
           XENOLITH_BRIDGE_OPENAI_SDK: ${{ runner.temp }}/chat-sdk/node_modules/openai/index.mjs
+      - uses: actions/setup-python@v5
+        if: matrix.node == 22
+        with:
+          python-version: '3.12'
+      - name: Install isolated Aider test client
+        if: matrix.node == 22
+        run: |
+          python -m venv "$RUNNER_TEMP/aider-runtime"
+          "$RUNNER_TEMP/aider-runtime/bin/python" -m pip install --disable-pip-version-check aider-chat==0.86.2
+      - name: Aider coding integration
+        if: matrix.node == 22
+        run: npm run test:aider
+        env:
+          XENOLITH_BRIDGE_AIDER_PYTHON: ${{ runner.temp }}/aider-runtime/bin/python
       - run: npm install --prefix "$RUNNER_TEMP/codex-cli" @openai/codex@0.162.1
       - name: Codex integration
         run: |

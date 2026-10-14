@@ -16,6 +16,7 @@
     "test": "node --test test/*.test.js",
     "test:codex": "node --test test/integration/*.test.js",
     "test:chat": "node --test test/client/*.test.js",
+    "test:aider": "node --test test/harness/*.test.js",
     "test:model": "node test/model/smoke.js",
     "test:persistence": "node test/model/persistence.js"
   },

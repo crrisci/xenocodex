@@ -9,6 +9,23 @@ import { acquireStateLock } from './state-lock.js';
 const failure = message => new AdapterError('session_state_error', message, 503);
 const marker = value => Number.isSafeInteger(value) && value >= 0;
 const identity = request => ({ system: request.system ?? '', tools: request.tools });
+const recoveryReport = () => ({ reason: 'session_not_found', source: 'client_history', previous_kv_restored: false });
+
+function canRecover(record, request) {
+  if (!isDeepStrictEqual(record.identity, identity(request)) ||
+      !isDeepStrictEqual(request.messages.slice(0, record.messages.length), record.messages)) return false;
+  // Preserve every known pending call and require its result in the supplied
+  // history. A missing engine session must not silently discard a tool outcome.
+  const suffix = request.messages.slice(record.messages.length);
+  return suffix.length >= record.pending.length && record.pending.every((call, i) =>
+    suffix[i].role === 'tool' && suffix[i].tool === call.name);
+}
+
+function requireRecoveryHistory(record, request) {
+  if (!canRecover(record, request)) {
+    throw failure('Missing native session: recovery requires the saved conversation prefix, unchanged instructions/tools and all pending tool results');
+  }
+}
 
 // A dedicated local directory has one writer, protected by a kernel-held guard.
 export class PersistentSessionCache {
@@ -63,7 +80,7 @@ export class PersistentSessionCache {
     }
     if (!data || typeof data !== 'object' || data.version !== 1 || !isDeepStrictEqual(data.engine, this.engine) ||
         !/^[a-f0-9]{32}$/.test(data.session ?? '') || !marker(data.marker) ||
-        typeof data.inFlight !== 'boolean' || !Array.isArray(data.messages) ||
+        typeof data.inFlight !== 'boolean' || (data.recoveryPending !== undefined && typeof data.recoveryPending !== 'boolean') || !Array.isArray(data.messages) ||
         !Array.isArray(data.pending) || !data.identity ||
         data.pending.some(p => !p || !marker(p.id) || typeof p.name !== 'string' || !p.arguments || typeof p.arguments !== 'object' || Array.isArray(p.arguments))) {
       throw failure('Invalid or incompatible persisted session binding');
@@ -85,33 +102,46 @@ export class PersistentSessionCache {
     this.entries.set(key, entry);
     try {
       const sameIdentity = identity(request);
+      if (entry.record?.recoveryPending) requireRecoveryHistory(entry.record, request);
       let reason = 'new_session';
+      let missing = false;
       if (entry.record) {
         let opened;
         for (let attempt = 0; ; attempt++) {
           try { opened = await wire.request({ op: 'open', session: entry.record.session }, this.timeout); break; }
           catch (error) {
             if (['busy', 'session_busy'].includes(error.code) && attempt < 25) { await sleep(20); continue; }
-            // Do not guess whether an engine error means this session is missing.
+            // Recover only an explicit protocol reply, never an I/O error or
+            // human-readable message suggesting that a session might be missing.
+            if (error.code === 'session_not_found') { missing = true;break; }
             throw error;
           }
         }
-        if (!marker(opened.marker) || !Array.isArray(opened.pending) || opened.pending.some(p => !marker(p))) {
-          throw failure('Invalid native session opening report');
+        if (missing) {
+          requireRecoveryHistory(entry.record, request);
+          reason = 'session_not_found';
+        } else {
+          if (!marker(opened.marker) || !Array.isArray(opened.pending) || opened.pending.some(p => !marker(p))) {
+            throw failure('Invalid native session opening report');
+          }
+          if (!entry.record.inFlight && (opened.marker !== entry.record.marker ||
+              !isDeepStrictEqual(opened.pending, entry.record.pending.map(p => p.id)))) {
+            throw failure('Committed session marker or pending calls diverged; no mutation was sent');
+          }
+          reason = entry.record.inFlight ? 'interrupted_request' : 'changed_history';
         }
-        if (!entry.record.inFlight && (opened.marker !== entry.record.marker ||
-            !isDeepStrictEqual(opened.pending, entry.record.pending.map(p => p.id)))) {
-          throw failure('Committed session marker or pending calls diverged; no mutation was sent');
-        }
-        reason = entry.record.inFlight ? 'interrupted_request' : 'changed_history';
-      } else {
+      }
+      if (!entry.record || missing) {
         const created = await wire.request({ op: 'create', ...sameIdentity }, this.timeout);
         if (!/^[a-f0-9]{32}$/.test(created.session ?? '') || !marker(created.marker)) throw failure('Invalid created session');
-        entry.record = { version: 1, engine: this.engine, session: created.session, marker: created.marker,
+        entry.record = missing ? { ...entry.record, session: created.session, marker: created.marker,
+          checkpoint: null, inFlight: true, recoveryPending: true } :
+          { version: 1, engine: this.engine, session: created.session, marker: created.marker,
           identity: sameIdentity, messages: [], pending: [], inFlight: true };
         await this.save(entry);
       }
       const record = entry.record;
+      entry.recovery = record.recoveryPending ? recoveryReport() : undefined;
       const suffix = request.messages.slice(record.messages.length);
       const incremental = !record.inFlight && isDeepStrictEqual(record.identity, sameIdentity) &&
         isDeepStrictEqual(request.messages.slice(0, record.messages.length), record.messages) && suffix.length > 0 &&
@@ -147,7 +177,7 @@ export class PersistentSessionCache {
       if (typeof checkpoint.saved !== 'boolean') throw failure('Invalid native checkpoint report');
     }
     entry.record = { ...entry.record, marker: terminal.marker, identity: identity(request),
-      messages: structuredClone([...request.messages, assistant]), pending, checkpoint, inFlight: false };
+      messages: structuredClone([...request.messages, assistant]), pending, checkpoint, inFlight: false, recoveryPending: false };
     await this.save(entry);
     this.onEvent?.({ kind: 'persistent_commit', session: entry.record.session, marker: terminal.marker, checkpoint });
     // Release the native binding before a published tool can produce another request.

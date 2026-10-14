@@ -16,6 +16,7 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 **0.3.0-alpha.1 — development version.** Supported HTTP contracts are a Responses
 streaming subset and a Chat Completions text/function-tool subset (streaming or JSON).
 Codex CLI 0.162.1 is the reference Responses client used for integration tests.
+An isolated Aider 0.86.2 coding test also exercises Chat Completions against the simulator.
 Compatibility with other clients must be checked against their actual requests.
 
 - Progressive text, function/custom tools, one namespace level and validated tool results.
@@ -189,8 +190,18 @@ Limits of this first persistent implementation:
   acknowledging it: recovery rebuilds history instead of appending the result again.
   Clients must retain completed tool results; this is not an exactly-once execution
   guarantee for tools or future model-generated calls.
-- Committed marker/pending-call divergence stops without mutation. A missing owned
-  engine session is currently an error, rather than automatic recreation.
+- Committed marker/pending-call divergence stops without mutation. An explicit
+  `session_not_found` reply can recreate an owned native session and rebuild it from
+  the client's full history. Recovery requires the saved conversation prefix,
+  unchanged instructions/tools and every pending tool result; truncated or changed
+  history is rejected. I/O errors, disconnections, busy replies and other failures
+  never trigger recreation. No existing engine session is deleted.
+- The recovered response includes `xenolith_session.recovery` with
+  `reason:session_not_found`, `source:client_history`, and `previous_kv_restored:false`.
+  Rebuilding history does not restore the old KV snapshot. Native `resume` and usage
+  counters remain unmodified. A failed replacement rebuild stays marked in-flight
+  so a retry can reopen that replacement and rebuild safely, including after a
+  bridge restart. The recovery report accompanies its first committed response.
 - Bindings contain conversation text. Keep their directory private and outside Git.
 - Orderly bridge/engine restart and actual snapshot restoration have been checked
   with direct HTTP requests on Linux/WSL using a real model. Pending-tool restart
@@ -250,6 +261,29 @@ with no external inference. To use another installation, set
 `XENOLITH_BRIDGE_OPENAI_SDK` to its absolute `openai/index.mjs` path. The SDK is a test
 dependency only. These checks also run in the Linux/macOS, Node 22/24 CI matrix.
 
+The optional Aider test requires a separate Python 3.12 environment:
+
+```sh
+python3.12 -m venv .test-artifacts/aider-runtime
+.test-artifacts/aider-runtime/bin/python -m pip install aider-chat==0.86.2
+npm run test:aider
+```
+
+Alternatively, set `XENOLITH_BRIDGE_AIDER_PYTHON` to an absolute Python executable
+with Aider installed. This test uses a temporary workspace, isolated configuration,
+disabled analytics and a local wire simulator. Aider reads and edits a small program,
+runs its tests, sends a real failing test result back through Chat Completions, and
+applies the next scripted correction. It proves that client/protocol workflow, not
+model coding ability. It uses Aider's `whole` edit format and a stable per-conversation
+`X-Xenolith-Session` custom header via its model settings `extra_params.extra_headers`.
+See [Aider's custom-header settings](https://aider.chat/docs/config/adv-model-settings.html).
+
+Aider changes file context between turns in this scenario: the bridge reopens the
+same native session but rebuilds history instead of incrementally appending it.
+No KV savings are inferred from the simulator. Other Aider modes and actual model
+quality still need separate verification. This test runs on Linux/macOS with Node 22
+in CI; neither Aider nor Python becomes a bridge runtime dependency.
+
 The opt-in model harness requires Linux, sufficient free memory and exclusive use
 of an engine it starts in private directories:
 
@@ -275,10 +309,11 @@ prompts are retained privately, outside Git.
 
 ## Next milestones and unsupported features
 
-Next: verify the new lock and Chat path on Linux with the real engine, including
-pending tools and rejected snapshots; then capture requests from a second coding
-harness and close concrete compatibility gaps. Missing owned engine sessions still
-fail explicitly; automatic recreation and stronger crash coverage are future work.
+Local coverage now includes missing-session recovery and a second coding harness
+(Aider, in the specific workflow above). Next: expand harness scenarios and measure
+context-rebuild behavior. Real-engine checks for Chat, pending tools, missing-session
+recovery, rejected snapshots and abrupt crashes remain a separate final validation
+stage when suitable hardware is available.
 The focus remains durable sessions, honest cache/checkpoint reports, cancellation
 and tool/result integrity. No client-specific frontend is planned.
 
