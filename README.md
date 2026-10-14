@@ -163,8 +163,12 @@ Mutations are recorded as in-flight before sending them. A validated terminal ev
 and persisted binding precede publication of executable tools. Shutdown releases
 connections and the directory lease, retaining native sessions and bindings.
 
-Completed textual turns request a checkpoint if the terminal report did not
-confirm one. `response.xenolith_session` reports the marker and checkpoint; a
+Completed textual turns and pending tool calls request a checkpoint if the
+terminal report did not confirm one. The checkpoint is attempted before publishing
+a tool call, so a successful save can also survive a restart while the harness
+executes the tool. This can add checkpoint latency before tool dispatch. The engine
+can refuse a checkpoint; its reason is preserved. `response.xenolith_session`
+reports the marker and checkpoint; a
 checkpoint reporting `saved:false` does not mean a snapshot was restored.
 
 Limits of this first persistent implementation:
@@ -198,17 +202,20 @@ Limits of this first persistent implementation:
   never trigger recreation. No existing engine session is deleted.
 - The recovered response includes `xenolith_session.recovery` with
   `reason:session_not_found`, `source:client_history`, and `previous_kv_restored:false`.
-  Rebuilding history does not restore the old KV snapshot. Native `resume` and usage
-  counters remain unmodified. A failed replacement rebuild stays marked in-flight
+  Rebuilding history does not restore the old KV snapshot. It can still produce
+  partially reusable context, so `previous_kv_restored:false` does not imply
+  `cache_read:0`. Native `resume` and usage counters remain unmodified. A failed replacement rebuild stays marked in-flight
   so a retry can reopen that replacement and rebuild safely, including after a
   bridge restart. The recovery report accompanies its first committed response.
 - Bindings contain conversation text. Keep their directory private and outside Git.
-- Orderly bridge/engine restart and actual snapshot restoration have been checked
-  with direct HTTP requests on Linux/WSL using a real model. Pending-tool restart
-  remains simulator-tested, including a bridge killed with SIGKILL followed by
-  automatic lease recovery and submission of the saved tool result. The new lock
-  and Chat frontend have local simulator coverage; abrupt engine crashes and pending
-  tools across a real engine restart still need hardware verification.
+- Real-model checks on Linux/WSL cover orderly bridge/engine restart, actual snapshot
+  restoration, Chat JSON/SSE, pending tool results after bridge/engine SIGKILL,
+  automatic lock recovery, missing native sessions, rejected snapshots and a crash
+  during generation. These checks use isolated state and a Gemma model on the
+  text-only Xenolith v1 protocol; they do not establish compatibility with every
+  engine build or model. A pending-tool checkpoint was also restored after forced
+  termination of both processes; when a checkpoint is refused, tool continuity
+  still does not imply KV restoration.
 
 ## Optional Codex launcher
 
@@ -303,24 +310,37 @@ XENOLITH_BIN=/absolute/path/to/xenolith \
 XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:persistence
 ```
 
-It checks a bridge restart, an engine restart with `resume.loaded:true`, and a
-missing snapshot with `loaded:false` and zero cache reuse. Real test results and
-prompts are retained privately, outside Git.
+It checks bridge/engine restart, actual KV restoration, a missing snapshot, Chat
+JSON/SSE, a pending tool result across forced process termination, missing-session
+recovery, a deliberately damaged snapshot and interruption during generation.
+Only its own isolated snapshots are damaged; original files are retained.
+Use `XENOLITH_BRIDGE_PERSISTENCE_PHASES=responses` or `chat` to select a group;
+the default runs both.
+
+The Chat group also compares identical requests in a continuing session and a
+fresh session. It records native input computations, cache reuse, time to first
+text and total request time. A single sequential pair is a diagnostic measurement,
+not a general throughput benchmark. Snapshot restoration, incremental reuse and
+history reconstruction are distinct; inspect native reports rather than assuming
+one from another. Results, prompts and environment details remain private and
+ignored by Git.
 
 ## Next milestones and unsupported features
 
-Local coverage now includes missing-session recovery and a second coding harness
-(Aider, in the specific workflow above). Next: expand harness scenarios and measure
-context-rebuild behavior. Real-engine checks for Chat, pending tools, missing-session
-recovery, rejected snapshots and abrupt crashes remain a separate final validation
-stage when suitable hardware is available.
+The persistent text/function-tool path now has real-engine crash and recovery
+coverage, in addition to simulated client tests. Next: run more coding harnesses
+against the real model, characterize changed-context rebuild costs, and repeat KV
+measurements across conversation sizes and engine builds. Aider's coding workflow
+above still uses simulated inference; its real-model quality remains unverified.
 The focus remains durable sessions, honest cache/checkpoint reports, cancellation
 and tool/result integrity. No client-specific frontend is planned.
 
 Reasoning/history reasoning, images/audio, hosted/deferred tools, nested namespaces,
 constrained JSON/verbosity, compressed requests, WebSocket, `previous_response_id`,
 Responses storage, rewind and encrypted remote compaction are unsupported.
-Unsupported features are rejected explicitly.
+Unsupported features are rejected explicitly. Xenolith services advertising
+protocol v2 (including vision services started with `--mmproj`) are not supported;
+use a text-only v1 service for this bridge.
 
 ## License
 

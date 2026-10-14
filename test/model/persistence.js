@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { WireConnection } from '../../src/wire.js';
+import { chatScenarios } from './scenarios.js';
 
 // Opt-in direct HTTP test. Owns only its isolated engine, bridge, state and cache.
 assert.equal(process.platform, 'linux', 'Run the real persistence test on Linux/WSL');
@@ -17,8 +18,10 @@ await mkdir(resolve('.test-artifacts'), { recursive: true });
 const root = await mkdtemp(resolve('.test-artifacts/persistence-'));
 const socket = join(root, 'w.sock'), bindings = join(root, 'bindings');
 await Promise.all(['state', 'cache'].map(n => mkdir(join(root, n), { mode: 0o700 })));
+const selected = new Set((process.env.XENOLITH_BRIDGE_PERSISTENCE_PHASES ?? 'responses,chat').split(','));
+assert.ok([...selected].every(p => ['responses', 'chat'].includes(p)), 'Unknown persistence phase');
 const results = { root, phases: {}, started_at: new Date().toISOString(), mode: 'direct_http_real_model' };
-let engine, bridge, info;
+let engine, bridge, info, restartIndex = 0;
 const key = 'persistence-' + randomBytes(8).toString('hex');
 const nonce = randomBytes(4).toString('hex');
 const instructions = 'Follow the user request. When asked for a verification key, return only that key, without explanation.';
@@ -34,9 +37,9 @@ async function exclusivePreflight() {
     catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
   }
 }
-async function stop(child) {
+async function stop(child, signal = 'SIGTERM') {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, 'exit');child.kill('SIGTERM');
+  const exited = once(child, 'exit');child.kill(signal);
   if (!await Promise.race([exited.then(() => true), sleep(10000).then(() => false)])) {
     child.kill('SIGKILL');await Promise.race([exited, sleep(5000)]);
   }
@@ -113,21 +116,38 @@ const cleanup = async () => { await stop(bridge);await stop(engine); };
 try {
   console.log('PERSISTENCE_ROOT ' + root);
   await startEngine('initial');results.describe = info;
-  let url = await startBridge('initial');const first = await turn(url, 'initial');
-  await stop(bridge);url = await startBridge('bridge-restart');
-  const second = await turn(url, 'bridge_restart', 'Return the verification key.');
-  assert.equal(second.session, first.session);assert.notEqual(second.pid, first.pid);
-  assert.ok(second.usage.cache_read > 0, 'Bridge restart must reuse actual engine context');
-  await stop(bridge);await stop(engine);await startEngine('restart');url = await startBridge('engine-restart');
-  const third = await turn(url, 'engine_restart', 'Return the verification key again.');
-  assert.equal(third.session, first.session);assert.equal(third.resume?.loaded, true, 'Need an actual loaded snapshot report');
-  assert.ok(third.usage.cache_read > 0, 'Engine restart must reuse loaded KV');
-  await stop(bridge);await stop(engine);
-  await rename(join(root, 'cache'), join(root, 'cache-retained'));await mkdir(join(root, 'cache'), { mode: 0o700 });
-  await startEngine('missing-snapshot');url = await startBridge('missing-snapshot');
-  const fourth = await turn(url, 'missing_snapshot', 'Return the verification key once more.');
-  assert.equal(fourth.session, first.session);assert.equal(fourth.resume?.loaded, false);
-  assert.equal(fourth.usage.cache_read, 0, 'Missing snapshot must not be presented as KV reuse');
+  let url = await startBridge('initial');
+  if (selected.has('responses')) {
+    const first = await turn(url, 'initial');
+    await stop(bridge);url = await startBridge('bridge-restart');
+    const second = await turn(url, 'bridge_restart', 'Return the verification key.');
+    assert.equal(second.session, first.session);assert.notEqual(second.pid, first.pid);
+    assert.ok(second.usage.cache_read > 0, 'Bridge restart must reuse actual engine context');
+    await stop(bridge);await stop(engine);await startEngine('restart');url = await startBridge('engine-restart');
+    const third = await turn(url, 'engine_restart', 'Return the verification key again.');
+    assert.equal(third.session, first.session);assert.equal(third.resume?.loaded, true, 'Need an actual loaded snapshot report');
+    assert.ok(third.usage.cache_read > 0, 'Engine restart must reuse loaded KV');
+    await stop(bridge);await stop(engine);
+    await rename(join(root, 'cache'), join(root, 'cache-retained'));await mkdir(join(root, 'cache'), { mode: 0o700 });
+    await startEngine('missing-snapshot');url = await startBridge('missing-snapshot');
+    const fourth = await turn(url, 'missing_snapshot', 'Return the verification key once more.');
+    assert.equal(fourth.session, first.session);assert.equal(fourth.resume?.loaded, false);
+    assert.equal(fourth.usage.cache_read, 0, 'Missing snapshot must not be presented as KV reuse');
+  }
+  if (selected.has('chat')) url = await chatScenarios({ root, socket, bindings, info, url, results, restart: async ({ crash, corruptSnapshots }) => {
+    await stop(bridge, crash ? 'SIGKILL' : 'SIGTERM');await stop(engine, crash ? 'SIGKILL' : 'SIGTERM');
+    if (corruptSnapshots) {
+      const cache = join(root, 'cache');
+      const snapshots = (await readdir(cache)).filter(name => name.endsWith('.xkv'));
+      assert.ok(snapshots.length, 'Need actual snapshots to exercise corruption');
+      for (const name of snapshots) {
+        await rename(join(cache, name), join(cache, name + '.retained'));
+        await writeFile(join(cache, name), 'intentionally damaged test snapshot');
+      }
+    }
+    const label = `${corruptSnapshots ? 'corrupt-snapshot' : 'chat-crash-restart'}-${++restartIndex}`;
+    await startEngine(label);return startBridge(label);
+  } });
   results.completed = true;console.log('PERSISTENCE_OK ' + root);
 } catch (error) {
   results.failure = { message: error.message, stack: error.stack };console.error('PERSISTENCE_FAILED ' + error.message);process.exitCode = 1;

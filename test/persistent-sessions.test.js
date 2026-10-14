@@ -100,6 +100,8 @@ test('pending tool results retain native IDs across bridge restart', async t => 
   let adapter = await s.start();const first = await post(adapter, { ...base, tools: [tool] });
   const call = first.final.response.output[0];assert.equal(call.type, 'function_call');
   assert.equal((await s.record()).value.pending[0].id, 41);
+  assert.equal(first.final.response.xenolith_session.checkpoint.saved, true);
+  assert.equal(s.fake.requests.filter(r => r.op === 'checkpoint').length, 1);
   await s.close();adapter = await s.start();
   const result = await post(adapter, { ...base, tools: [tool], input: [...base.input, call,
     { type: 'function_call_output', call_id: call.call_id, output: 'nonce-result' }] });
@@ -332,3 +334,28 @@ test(`persistent tool binding survives two actual CLI processes (${abrupt ? 'SIG
   assert.ok(!s.fake.requests.some(r => ['ephemeral', 'delete'].includes(r.op)));
 });
 }
+
+test('a refused pending-tool checkpoint remains explicit without losing the tool', async t => {
+  const s = await setup(t, async ({ send }) => {
+    await send({ event: 'toolcall_end', id: 81, name: 'read', arguments: {} });
+    await send(done('tool_use'));
+  }, { faults: { checkpoint: { ok: true, saved: false, tokens: 50, reason: 'kv_diverged' } } });
+  const result = await post(await s.start(), { ...base, tools: [tool] });
+  assert.equal(result.final.type, 'response.completed');
+  assert.equal(result.final.response.output[0].type, 'function_call');
+  assert.equal(result.final.response.xenolith_session.checkpoint.saved, false);
+  assert.equal(result.final.response.xenolith_session.checkpoint.reason, 'kv_diverged');
+  const { value } = await s.record();
+  assert.equal(value.inFlight, false);assert.equal(value.pending[0].id, 81);
+});
+
+test('pending-tool checkpoint transport failure withholds execution and keeps uncertainty', async t => {
+  const s = await setup(t, async ({ send }) => {
+    await send({ event: 'toolcall_end', id: 82, name: 'read', arguments: {} });
+    await send(done('tool_use'));
+  }, { faults: { checkpoint: 'disconnect' } });
+  const result = await post(await s.start(), { ...base, tools: [tool] });
+  assert.equal(result.final.type, 'response.failed');
+  assert.ok(!result.events.some(e => e.item?.type === 'function_call'));
+  assert.equal((await s.record()).value.inFlight, true);
+});

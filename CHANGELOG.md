@@ -2,6 +2,12 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Attempt checkpoints before publishing pending tool calls, preserve native refusal reasons, and withhold execution on checkpoint transport failures.
+
+- Extend the opt-in real-engine battery with Chat JSON/SSE, identical warm/cold requests, pending-tool continuity after forced bridge/engine termination, missing sessions, corrupt snapshots and interruption during generation.
+- Distinguish missing-snapshot recovery from any partial native context reuse during reconstruction; preserve the engine's accounting.
+- Allow selecting Responses or Chat persistence scenarios and retain original snapshots when testing corruption.
+
 - Recreate missing owned native sessions only on explicit session_not_found replies and complete matching client history; preserve pending tool results and report that the previous KV was not restored.
 - Keep replacement recovery durable across rebuild failures and bridge restarts, without recreating sessions for transport, busy or unrelated engine errors.
 - Exercise Aider 0.86.2 with an isolated Chat Completions coding loop: file edit, failed tests, returned feedback and correction. Preserve one native session while rebuilding changed file context; do not infer KV savings from the simulator.

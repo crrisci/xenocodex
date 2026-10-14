@@ -172,7 +172,9 @@ export class PersistentSessionCache {
     const pending = [...stream.calls.entries()].map(([id, call]) => ({ id, ...call }));
     if (pending.length) assistant.calls = pending.map(({ name, arguments: args }) => ({ name, arguments: args }));
     let checkpoint = terminal.checkpoint;
-    if (terminal.stop === 'stop' && checkpoint?.saved !== true) {
+    // A tool result may arrive after both processes restart. Attempt to retain
+    // its prompt KV before publishing the call; native refusal remains explicit.
+    if (['stop', 'tool_use'].includes(terminal.stop) && checkpoint?.saved !== true) {
       checkpoint = await entry.wire.request({ op: 'checkpoint' }, this.timeout);
       if (typeof checkpoint.saved !== 'boolean') throw failure('Invalid native checkpoint report');
     }
