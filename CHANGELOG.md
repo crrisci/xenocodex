@@ -2,6 +2,9 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Add an opt-in real-model Aider coding test with isolated engine ownership, unchanged-test checks and native usage evidence.
+- Add repeated KV diagnostics across context sizes, comparing incremental continuation and changed-history rebuild with fresh sessions.
+
 - Attempt checkpoints before publishing pending tool calls, preserve native refusal reasons, and withhold execution on checkpoint transport failures.
 
 - Extend the opt-in real-engine battery with Chat JSON/SSE, identical warm/cold requests, pending-tool continuity after forced bridge/engine termination, missing sessions, corrupt snapshots and interruption during generation.

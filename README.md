@@ -287,9 +287,27 @@ See [Aider's custom-header settings](https://aider.chat/docs/config/adv-model-se
 
 Aider changes file context between turns in this scenario: the bridge reopens the
 same native session but rebuilds history instead of incrementally appending it.
-No KV savings are inferred from the simulator. Other Aider modes and actual model
-quality still need separate verification. This test runs on Linux/macOS with Node 22
-in CI; neither Aider nor Python becomes a bridge runtime dependency.
+No KV savings are inferred from the simulator. This test runs on Linux/macOS with
+Node 22 in CI; neither Aider nor Python becomes a bridge runtime dependency.
+
+To exercise the same coding fixture with real inference on Linux/WSL:
+
+```sh
+XENOLITH_BIN=/absolute/path/to/xenolith \
+XENOLITH_MODEL=/absolute/path/to/model.gguf \
+XENOLITH_BRIDGE_AIDER_PYTHON=/absolute/path/to/aider-venv/bin/python \
+npm run test:aider:real
+```
+
+The launcher requires at least 21 GiB of available memory and no other Xenolith
+engine, starts its own text-only engine with a 65,536-token context, and stops it
+after the test. The test checks an initially failing program, Aider's
+own passing test run, independent verification and unchanged tests. It records
+native usage and session events without requiring a particular number of model
+attempts. Aider 0.86.2 with Gemma 4 26B A4B passed this small fixture in whole-file
+mode on WSL; that run corrected the program in one request and reported no cache
+reuse. Real-model error-feedback loops, larger tasks and other edit modes remain
+unverified.
 
 The opt-in model harness requires Linux, sufficient free memory and exclusive use
 of an engine it starts in private directories:
@@ -325,13 +343,31 @@ history reconstruction are distinct; inspect native reports rather than assuming
 one from another. Results, prompts and environment details remain private and
 ignored by Git.
 
+For repeated context-size and changed-history diagnostics:
+
+```sh
+XENOLITH_BIN=/absolute/path/to/xenolith \
+XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:kv
+```
+
+This launcher uses the same memory/context preflight as the real Aider test.
+The default runs two conversations at each of 32, 128 and 512 ledger records.
+Override these with `XENOLITH_BRIDGE_KV_SIZES` (comma-separated record counts) and
+`XENOLITH_BRIDGE_KV_REPETITIONS`. Each conversation compares an incremental
+continuation with an identical request in a fresh session, then changes an early
+history entry and compares the rebuild with another fresh session. It verifies
+answers, native usage and the rebuild event, recording first-text and total time.
+A fresh session can still report native cache reuse; inspect `cache_read` rather
+than assuming an empty cache. Runs are sequential and warm-first; results are diagnostics for the selected
+engine and synthetic text, not a randomized benchmark or general savings claim.
+
 ## Next milestones and unsupported features
 
 The persistent text/function-tool path now has real-engine crash and recovery
-coverage, in addition to simulated client tests. Next: run more coding harnesses
-against the real model, characterize changed-context rebuild costs, and repeat KV
-measurements across conversation sizes and engine builds. Aider's coding workflow
-above still uses simulated inference; its real-model quality remains unverified.
+coverage, plus a small real-model Aider coding check and repeatable KV diagnostics
+across context sizes and changed history. Next: broaden coding tasks and harnesses,
+exercise Aider error feedback with real inference, and compare KV measurements
+across engine builds and more representative conversations.
 The focus remains durable sessions, honest cache/checkpoint reports, cancellation
 and tool/result integrity. No client-specific frontend is planned.
 

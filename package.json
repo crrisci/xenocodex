@@ -18,7 +18,9 @@
     "test:chat": "node --test test/client/*.test.js",
     "test:aider": "node --test test/harness/*.test.js",
     "test:model": "node test/model/smoke.js",
-    "test:persistence": "node test/model/persistence.js"
+    "test:persistence": "node test/model/persistence.js",
+    "test:aider:real": "node test/model/aider.js",
+    "test:kv": "node test/model/kv.js"
   },
   "files": [
     "src/",
