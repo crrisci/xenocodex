@@ -13,16 +13,23 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 
 ## Current status
 
-**0.3.0-rc.1 — release candidate for the text/tool contract below.**
+**0.3.0 — stable release of the text/tool contract below.**
 
 See [release acceptance](ACCEPTANCE.md) for clean installation, real-engine
-checks and the independent feedback required before stable publication.
+checks and the validation scope of this release.
+
 Both Responses and Chat Completions return JSON by default and support streaming.
 This is a defined subset of the APIs, not every feature offered by OpenAI.
 Codex CLI 0.162.1 is the reference Responses client used for integration tests.
 Aider 0.86.2 exercises Chat Completions with the simulator and real inference.
 The OpenAI JavaScript SDK exercises JSON, streaming and tool history on both APIs.
 Compatibility with other clients must be checked against their actual requests.
+
+Validation combines automated wire-simulator/client/package checks with earlier
+real-engine Aider, Codex and recovery runs on base/LNL builds. The new complete
+JSON/SDK matrix has not been rerun on a real engine: access to the test hardware
+ended before final release validation. Stable status applies to the documented
+contract; persistent bindings remain experimental. See [validation details](ACCEPTANCE.md).
 
 - Progressive text, function/custom tools, one namespace level and validated tool results.
 - Bounded process-local KV reuse with `--reuse-kv`.
@@ -58,16 +65,16 @@ archive, or produce a portable npm package from a checkout:
 
 ```sh
 npm pack
-# Produces xenolith-bridge-0.3.0-rc.1.tgz for this candidate.
-npm install --prefix /absolute/private/bridge-install ./xenolith-bridge-0.3.0-rc.1.tgz
+# Produces xenolith-bridge-0.3.0.tgz for this release.
+npm install --prefix /absolute/private/bridge-install ./xenolith-bridge-0.3.0.tgz
 npm exec --prefix /absolute/private/bridge-install -- xenolith-bridge serve --socket /absolute/path/wire.sock
 ```
 
 A GitHub source-release `.tar.gz` can also be passed directly to `npm install`.
-Global installation is optional: `npm install -g ./xenolith-bridge-0.3.0-rc.1.tgz`
+Global installation is optional: `npm install -g ./xenolith-bridge-0.3.0.tgz`
 then `xenolith-bridge serve --socket /absolute/path/wire.sock`.
-This candidate is prepared for npm packaging; it has not been published to the npm
-registry. No credentials, runtime SDK, engine or model are bundled.
+The installable npm archive is distributed through GitHub Releases; the package
+has not been published to the npm registry. No credentials, runtime SDK, engine or model are bundled.
 
 ## Start the bridge
 

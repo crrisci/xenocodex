@@ -1,11 +1,17 @@
 # Release acceptance: 0.3.0
 
-The published `0.3.0-rc.1` is a candidate for the README's text/function-tool
-contract. Stable publication requires the installed-artifact real-engine checks
-and independent founder feedback below. Passing simulator tests alone does not
-satisfy either gate.
+Release `0.3.0` covers the README's text/tool contract. Its release basis is the
+passing automated API/client/package suites plus earlier real-engine Aider,
+Codex and recovery checks on base and LNL builds. The test host is no longer
+available, so the newly added complete JSON/SSE installed-artifact battery has
+not been run with a real engine. Simulator results do not replace that evidence.
+Independent founder feedback was not required for this release and no founder
+approval is claimed. Persistent session bindings remain experimental.
 
-## Install the published candidate in a clean prefix
+The procedures below allow users with compatible hardware to reproduce the
+outstanding real-engine checks and report failures.
+
+## Install the published release in a clean prefix
 
 Use Linux or WSL, Node.js >=22, an existing Xenolith wire v1 binary with durable
 sessions/checkpoints, and a supported local text model. The real test owns one
@@ -14,22 +20,22 @@ refuses to start when another Xenolith engine is running. It does not download
 weights or change the existing engine installation.
 
 Download these assets from the
-[RC release](https://github.com/crrisci/xenolith-bridge/releases/tag/v0.3.0-rc.1)
+[stable release](https://github.com/crrisci/xenolith-bridge/releases/tag/v0.3.0)
 into an empty directory:
 
-- `xenolith-bridge-0.3.0-rc.1.tgz`
-- `xenolith-bridge-0.3.0-rc.1.tgz.sha256`
+- `xenolith-bridge-0.3.0.tgz`
+- `xenolith-bridge-0.3.0.tgz.sha256`
 
 From that directory:
 
 ```sh
-sha256sum -c xenolith-bridge-0.3.0-rc.1.tgz.sha256
+sha256sum -c xenolith-bridge-0.3.0.tgz.sha256
 npm install --offline --ignore-scripts --no-audit --no-fund \
-  --prefix "$PWD/install" "$PWD/xenolith-bridge-0.3.0-rc.1.tgz"
+  --prefix "$PWD/install" "$PWD/xenolith-bridge-0.3.0.tgz"
 ./install/node_modules/.bin/xenolith-bridge --version
 ```
 
-Expect `xenolith-bridge 0.3.0-rc.1`. No npm registry account, API key or global
+Expect `xenolith-bridge 0.3.0`. No npm registry account, API key or global
 installation is needed. The archive does not bundle an engine or model.
 For manual client testing, start your engine separately, then run:
 
@@ -42,15 +48,15 @@ The printed JSON supplies the local `base_url` and `model` for clients.
 
 ## Reproduce the real API battery
 
-The acceptance driver was added after the RC tag. Obtain the current repository
-separately; it drives the **installed candidate**, rather than running the
+The acceptance driver ships with this release. Obtain the tagged repository
+separately; it drives the **installed release**, rather than running the
 checkout's server. Stop the manual bridge/engine before this battery.
 
 ```sh
-git clone https://github.com/crrisci/xenolith-bridge.git acceptance-source
+git clone --branch v0.3.0 https://github.com/crrisci/xenolith-bridge.git acceptance-source
 cd acceptance-source
 export XENOLITH_BRIDGE_INSTALL_ROOT=/absolute/path/to/install
-export XENOLITH_BRIDGE_PACKAGE_ARCHIVE=/absolute/path/to/xenolith-bridge-0.3.0-rc.1.tgz
+export XENOLITH_BRIDGE_PACKAGE_ARCHIVE=/absolute/path/to/xenolith-bridge-0.3.0.tgz
 export XENOLITH_BIN=/absolute/path/to/xenolith
 export XENOLITH_MODEL=/absolute/path/to/model.gguf
 npm run test:release:real
@@ -76,13 +82,13 @@ published package can also be installed and checked locally against that
 simulator, without loading weights:
 
 ```sh
-XENOLITH_BRIDGE_PACKAGE_ARCHIVE=/absolute/path/to/xenolith-bridge-0.3.0-rc.1.tgz \
+XENOLITH_BRIDGE_PACKAGE_ARCHIVE=/absolute/path/to/xenolith-bridge-0.3.0.tgz \
   npm run test:package
 ```
 
 That command is a packaging check, not evidence of real-model compatibility.
 
-## Independent founder feedback
+## Optional independent feedback
 
 Please test the published package in a fresh installation and report:
 
@@ -92,20 +98,21 @@ Please test the published package in a fresh installation and report:
 - Any failure: minimal reproducible request, expected/actual behavior and error.
 - Whether the documented text/tool scope is acceptable for stable `0.3.0`.
 
-A maintainer running the battery is not a substitute for this independent test.
-No founder approval has been recorded in this checklist. Share results through
-the repository owner; this workflow does not contact anyone automatically.
+Independent testing is welcome and is not a publication prerequisite. Report
+reproducible issues through GitHub, keeping credentials and private logs out of
+public reports. This workflow does not contact anyone automatically.
 
-## Stable publication gate
+## Publication checks for 0.3.0
 
-1. Verify downloaded release archives against their SHA256 sidecars and install
-   the published npm archive in an empty prefix.
-2. Pass real-engine acceptance on the supported base and LNL builds, retaining
-   private evidence and provenance.
-3. Record independent founder feedback and resolve reproducible release blockers.
-4. Set version/release notes to `0.3.0`, run the relevant local suites and CI,
-   then publish the stable tag. Verify the published assets and checksums again.
+1. Run the unit/transport, SDK, Codex, Aider and offline package suites; require
+   passing CI on Linux/macOS with Node 22/24.
+2. Retain the earlier real-engine evidence privately and explicitly disclose the
+   outstanding final real-engine matrix in the README and release notes.
+3. Set version and release notes to `0.3.0`, publish the stable tag, then verify
+   the downloaded source/npm archives, checksum sidecars and clean installation.
 
-If fixes change runtime behavior, publish another RC and repeat affected
-acceptance checks before promoting it. Keep unsupported features explicit in the
-README. Stable `0.3.0` does not imply full OpenAI API compatibility.
+The full real-engine battery and independent feedback remain follow-up work
+when hardware and testers are available. They are not claimed as completed or
+required for this publication. Reproducible runtime defects should receive a
+patch release with relevant regression coverage. Keep unsupported features
+explicit in the README; stable `0.3.0` does not imply full OpenAI API compatibility.

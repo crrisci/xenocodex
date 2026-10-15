@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Publish the documented Responses and Chat Completions text/tool contract as a stable GitHub release, with installable npm and source archives plus SHA256 sidecars. No runtime behavior changes since `0.3.0-rc.1`.
+- Add an opt-in installed-release real-engine battery for the four JSON/SSE API modes, pending-tool restart, explicit snapshot restoration and cancellation/recovery; check the driver against the simulator.
+- Document the validation boundary: automated API/client/package checks and earlier real-engine base/LNL evidence are available; the final complete real-engine matrix was not run after access to the test host ended. Independent founder feedback is optional; persistent bindings remain experimental.
+
 ## 0.3.0-rc.1
 
 - Add Responses JSON output by default, retaining SSE with `stream:true`, bounded accumulation and commit-before-publication.
