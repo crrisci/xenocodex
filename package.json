@@ -22,14 +22,16 @@
     "test:aider:feedback:real": "node test/model/aider.js --feedback",
     "test:kv": "node test/model/kv.js",
     "test:sdk": "node --test test/client/*.test.js",
-    "test:package": "node --test test/package/*.test.js"
+    "test:package": "node --test test/package/*.test.js",
+    "test:release:real": "node test/model/release.js"
   },
   "files": [
     "src/",
     "test/",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "ACCEPTANCE.md"
   ],
   "repository": {
     "type": "git",

@@ -14,6 +14,9 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 ## Current status
 
 **0.3.0-rc.1 — release candidate for the text/tool contract below.**
+
+See [release acceptance](ACCEPTANCE.md) for clean installation, real-engine
+checks and the independent feedback required before stable publication.
 Both Responses and Chat Completions return JSON by default and support streaming.
 This is a defined subset of the APIs, not every feature offered by OpenAI.
 Codex CLI 0.162.1 is the reference Responses client used for integration tests.

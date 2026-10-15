@@ -92,7 +92,7 @@ export async function startFakeWire(root, { info = description, generate, afterA
                 await send({ event: 'start' });
                 await send({ event: 'text_delta', text: 'Ciao 🌋' });
                 await send(done());
-              }))({ request, send, socket, cancelled: () => cancelled, callId: randomUUID() });
+              }))({ request, send, socket, session, cancelled: () => cancelled, callId: randomUUID() });
             } catch (error) {
               errors.push(error);
               await send({ event: 'error', code: 'invalid_request', error: error.message });

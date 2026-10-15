@@ -33,27 +33,34 @@ export async function startRealEngine(prefix) {
   }
   await mkdir(resolve('.test-artifacts'), { recursive: true });
   const root = await mkdtemp(resolve(`.test-artifacts/${prefix}-`));
-  const socket = join(root, 'w.sock'), label = 'initial';
+  const socket = join(root, 'w.sock');
   await Promise.all(['state', 'cache'].map(n => mkdir(join(root, n), { mode: 0o700 })));
-  let engine;
-  try {
-    await exclusivePreflight();
-    const log = createWriteStream(join(root, `engine-${label}.log`));
-    engine = spawn(engineBin, ['serve', model, '--ctx', '65536', '--socket', socket,
-      '--state', join(root, 'state'), '--cache', join(root, 'cache')], { stdio: ['ignore', 'pipe', 'pipe'] });
-    engine.on('error', error => { engine.failure = error; });engine.stdout.pipe(log, { end: false });engine.stderr.pipe(log, { end: false });
-    engine.once('close', () => log.end());
-    console.log(`ENGINE_START ${engine.pid} ${label}`);
-    const deadline = Date.now() + 300000;
-    while (Date.now() < deadline) {
-      if (engine.failure) throw engine.failure;
-      assert.equal(engine.exitCode, null, 'Owned engine exited during startup');
-      let wire;
-      try { wire = await WireConnection.open(socket, 1000);const info = await wire.describe();return { root, socket, info, engine, close: () => stop(engine) }; }
-      catch (error) { if (error.code === 'incompatible_protocol') throw error; }
-      finally { wire?.close(); }
-      await sleep(500);
-    }
-    throw new Error('Engine startup timeout');
-  } catch (error) { await stop(engine);throw error; }
+  let engine, sequence = 0;
+  const launch = async () => {
+    try {
+      const label = sequence++;
+      await exclusivePreflight();
+      const log = createWriteStream(join(root, `engine-${label}.log`));
+      engine = spawn(engineBin, ['serve', model, '--ctx', '65536', '--socket', socket,
+        '--state', join(root, 'state'), '--cache', join(root, 'cache')], { stdio: ['ignore', 'pipe', 'pipe'] });
+      engine.on('error', error => { engine.failure = error; });engine.stdout.pipe(log, { end: false });engine.stderr.pipe(log, { end: false });
+      engine.once('close', () => log.end());
+      console.log(`ENGINE_START ${engine.pid} ${label}`);
+      const deadline = Date.now() + 300000;
+      while (Date.now() < deadline) {
+        if (engine.failure) throw engine.failure;
+        assert.equal(engine.exitCode, null, 'Owned engine exited during startup');
+        assert.equal(engine.signalCode, null, 'Owned engine was signalled during startup');
+        let wire;
+        try { wire = await WireConnection.open(socket, 1000);const info = await wire.describe();return info; }
+        catch (error) { if (error.code === 'incompatible_protocol') throw error; }
+        finally { wire?.close(); }
+        await sleep(500);
+      }
+      throw new Error('Engine startup timeout');
+    } catch (error) { await stop(engine);throw error; }
+  };
+  const info = await launch();
+  return { root, socket, info, get engine() { return engine; }, close: () => stop(engine),
+    async restart() { await stop(engine);const next = await launch();assert.equal(next.model, info.model);return next; } };
 }

@@ -24,9 +24,10 @@ test('packed CLI installs offline, resolves through npm exec and serves both JSO
   const env = { ...process.env, HOME: home, npm_config_cache: join(root, 'npm-cache'),
     npm_config_userconfig: join(root, 'npmrc'), npm_config_offline: 'true', npm_config_audit: 'false', npm_config_fund: 'false' };
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packed = JSON.parse(await run(npm, ['pack', '--json', '--ignore-scripts', '--pack-destination', root], source, env))[0];
-  assert.ok(!packed.files.some(f => /^(docs|native|\.test-artifacts|node_modules)\//.test(f.path)));
-  const archive = join(root, packed.filename);
+  const published = process.env.XENOLITH_BRIDGE_PACKAGE_ARCHIVE;
+  const packed = published ? null : JSON.parse(await run(npm, ['pack', '--json', '--ignore-scripts', '--pack-destination', root], source, env))[0];
+  if (packed) assert.ok(!packed.files.some(f => /^(docs|native|\.test-artifacts|node_modules)\//.test(f.path)));
+  const archive = published ? resolve(published) : join(root, packed.filename);
   await run(npm, ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', install, archive], root, env);
   const version = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).version;
   const prefix = ['exec', '--offline', '--prefix', install, '--', 'xenolith-bridge'];
