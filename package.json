@@ -20,6 +20,7 @@
     "test:model": "node test/model/smoke.js",
     "test:persistence": "node test/model/persistence.js",
     "test:aider:real": "node test/model/aider.js",
+    "test:aider:feedback:real": "node test/model/aider.js --feedback",
     "test:kv": "node test/model/kv.js"
   },
   "files": [

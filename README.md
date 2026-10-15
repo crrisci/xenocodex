@@ -306,8 +306,29 @@ own passing test run, independent verification and unchanged tests. It records
 native usage and session events without requiring a particular number of model
 attempts. Aider 0.86.2 with Gemma 4 26B A4B passed this small fixture in whole-file
 mode on WSL; that run corrected the program in one request and reported no cache
-reuse. Real-model error-feedback loops, larger tasks and other edit modes remain
-unverified.
+reuse. The separate multi-file feedback scenario below has also passed with
+Aider 0.86.2 and this model on WSL: a failed model edit, returned test feedback,
+a passing correction and independent verification with unchanged tests. Larger
+tasks and other edit modes remain unverified.
+
+The multi-file feedback scenario is available separately:
+
+```sh
+XENOLITH_BIN=/absolute/path/to/xenolith \
+XENOLITH_MODEL=/absolute/path/to/model.gguf \
+XENOLITH_BRIDGE_AIDER_PYTHON=/absolute/path/to/aider-venv/bin/python \
+npm run test:aider:feedback:real
+```
+
+It asks Aider to repair monetary conversion and invoice totals in two modules.
+The unchanged test suite specifies decimal half-up rounding through real failure
+messages. Each test invocation records source snapshots, test hashes and results.
+Acceptance requires a failing test after a model edit, that failure's unique marker
+in a later Chat Completions request, Aider's passing correction and an independent
+passing run. A first-attempt solution does not complete this feedback check.
+`npm run test:aider` also exercises it with scripted wire replies; this verifies
+the harness, not real-model correction ability. Artifacts remain private under
+`.test-artifacts/`.
 
 The opt-in model harness requires Linux, sufficient free memory and exclusive use
 of an engine it starts in private directories:
@@ -318,7 +339,18 @@ XENOLITH_MODEL=/absolute/path/to/model.gguf npm run test:model
 ```
 
 Use `XENOLITH_BRIDGE_REUSE_KV=1` for process-local reuse and
-`XENOLITH_BRIDGE_PHASES` to select model-harness phases. That harness covers the process-local mode. Test artifacts remain private and ignored.
+`XENOLITH_BRIDGE_PHASES` to select model-harness phases. Test artifacts remain private and ignored.
+
+For the coding lifecycle with persistent bindings, select
+`XENOLITH_BRIDGE_PERSISTENT=1 XENOLITH_BRIDGE_PHASES=codex_lifecycle` when running
+`npm run test:model`. This scenario edits and tests a cart module, compacts the
+conversation, restarts client/bridge/engine and verifies the resumed program.
+Persistent mode requires an explicit native `loaded: true` report after the engine
+restart. The model harness and multi-file Aider scenario record per-request native
+usage, session decisions, time to first wire text and time to the wire terminal.
+These timings are observed inside the bridge and exclude final HTTP delivery;
+tool-only responses have no first-text measurement. They are diagnostics, not a
+general performance benchmark.
 
 The dedicated persistent-mode battery uses HTTP directly and owns isolated bridge
 processes, engine state/cache and bindings:

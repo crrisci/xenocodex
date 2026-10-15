@@ -2,6 +2,9 @@
 
 ## 0.3.0-alpha.1 (development)
 
+- Record per-request context decisions, native usage and wire timings in coding diagnostics; add persistent bindings and an explicit snapshot-restoration check to the opt-in Codex coding lifecycle.
+- Verify a real-model Aider error-feedback correction on a two-module invoice fixture; keep detailed results private.
+- Add a multi-file Aider invoice scenario that requires a failed edit, actual error feedback in subsequent inference, a passing correction and independent verification with unchanged tests. Add an opt-in real-engine launcher; simulated replies verify the workflow only.
 - Add an opt-in real-model Aider coding test with isolated engine ownership, unchanged-test checks and native usage evidence.
 - Add repeated KV diagnostics across context sizes, comparing incremental continuation and changed-history rebuild with fresh sessions.
 

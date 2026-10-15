@@ -6,13 +6,16 @@ import { startRealEngine, stop } from './engine.js';
 
 // Opt-in real inference; the launcher owns only this isolated engine/client.
 const python = process.env.XENOLITH_BRIDGE_AIDER_PYTHON;
+const args = process.argv.slice(2);
+assert.ok(args.length === 0 || (args.length === 1 && args[0] === '--feedback'), 'Usage: node test/model/aider.js [--feedback]');
+const fixture = args[0] === '--feedback' ? 'test/harness/aider-feedback.test.js' : 'test/harness/aider.test.js';
 assert.ok(python?.startsWith('/'), 'Explicit absolute Aider Python path required');
 await access(python);
 let engine, client;
 try {
   engine = await startRealEngine('aider-engine');
   console.log('AIDER_ENGINE_ROOT ' + engine.root);
-  client = spawn(process.execPath, ['--test', 'test/harness/aider.test.js'], {
+  client = spawn(process.execPath, ['--test', fixture], {
     env: { ...process.env, XENOLITH_BRIDGE_AIDER_REAL_SOCKET: engine.socket }, stdio: 'inherit',
   });
   const [code] = await once(client, 'exit');

@@ -15,11 +15,14 @@ import { appServer } from '../helpers/app-server.js';
 const bin = process.env.XENOLITH_BIN;
 const model = process.env.XENOLITH_MODEL;
 const reuseKv = process.env.XENOLITH_BRIDGE_REUSE_KV === '1';
+const persistent = process.env.XENOLITH_BRIDGE_PERSISTENT === '1';
 const clients = new Set();
 let engine, adapter, root;
 let stopping;
 const result = { started_at: new Date().toISOString(), mode: 'real', phases: {} };
 result.reuse_kv = reuseKv;
+result.persistent = persistent;
+result.request_metrics = [];
 result.generations = [];
 result.kv_hits = 0;
 result.kv_misses = 0;
@@ -256,22 +259,32 @@ async function main() {
   const requests = createWriteStream(join(root, 'requests.jsonl'));
   const wireEvents = createWriteStream(join(root, 'wire-events.jsonl'));
   const sessionEvents = createWriteStream(join(root, 'session-events.jsonl'));
-  let count = 0;
+  let count = 0, current, phase;
   const start = () => startAdapter({ socketPath: join(root, 'w.sock'), maxOutputTokens: 2048, reuseKv,
+    ...(persistent ? { stateDir: join(root, 'bindings') } : {}),
     onSessionEvent: event => {
       sessionEvents.write(JSON.stringify({ timestamp: Date.now(), ...event }) + '\n');
-      if (event.kind === 'hit') result.kv_hits++;
-      if (event.kind === 'miss') result.kv_misses++;
+      current?.session_events.push(structuredClone(event));
+      if (['hit', 'persistent_hit'].includes(event.kind)) result.kv_hits++;
+      if (['miss', 'persistent_rebuild'].includes(event.kind)) result.kv_misses++;
       console.log(`KV ${event.kind}`);
     },
     onRequest: request => {
       if (++count > 40) throw new Error('Real battery request limit exceeded');
+      current = { index: count, phase, started_at: Date.now(), first_wire_text_ms: null,
+        wire_done_ms: null, session_events: [] };
+      result.request_metrics.push(current);
       requests.write(JSON.stringify({ timestamp: Date.now(), ...request }) + '\n');
       console.log(`REQUEST ${count} input_items=${Array.isArray(request.body.input) ? request.body.input.length : 1}`);
     },
     onWireEvent: event => {
       wireEvents.write(JSON.stringify({ timestamp: Date.now(), ...event }) + '\n');
-      if (event.event === 'done') result.generations.push(event);
+      if (event.event === 'text_delta' && current.first_wire_text_ms === null) current.first_wire_text_ms = Date.now() - current.started_at;
+      if (event.event === 'done') {
+        result.generations.push(event);
+        Object.assign(current, { wire_done_ms: Date.now() - current.started_at,
+          usage: event.usage, inference: event.inference, resume: event.resume ?? null });
+      }
     },
   });
   adapter = await start();
@@ -283,6 +296,7 @@ async function main() {
         const restarted = await launchEngine('engine-restarted.log');
         assert.equal(restarted.model, result.describe.model);
         result.restarted_engine_pid = engine.pid;
+        result.engine_restart_request_offset = count;
         adapter = await start();
       })],
       ['api_text', apiText],
@@ -294,6 +308,7 @@ async function main() {
     const selected = process.env.XENOLITH_BRIDGE_PHASES?.split(',') ?? phases.map(([label]) => label);
     assert.ok(selected.length && selected.every(label => phases.some(([name]) => name === label)), 'Unknown/empty XENOLITH_BRIDGE_PHASES');
     for (const [label, run] of phases.filter(([label]) => selected.includes(label))) {
+      phase = label;
       console.log(`PHASE_START ${label}`);
       try {
         result.phases[label] = { status: 'passed', ...await run() };
@@ -303,7 +318,11 @@ async function main() {
         throw error;
       }
     }
-    if (reuseKv && selected.some(label => ['codex_tool', 'codex_literal', 'codex_coding'].includes(label))) {
+    if (persistent && selected.includes('codex_lifecycle')) {
+      assert.ok(result.request_metrics.slice(result.engine_restart_request_offset).some(r => r.resume?.loaded === true),
+        'Persistent coding lifecycle must report actual snapshot restoration after engine restart');
+    }
+    if ((reuseKv || persistent) && selected.some(label => ['codex_tool', 'codex_literal', 'codex_coding'].includes(label))) {
       assert.ok(result.kv_hits > 0, 'KV battery must exercise a matching continuation');
       assert.ok(result.generations.some(event => event.usage.cache_read > 0), 'Engine must report actual KV reuse');
     }
