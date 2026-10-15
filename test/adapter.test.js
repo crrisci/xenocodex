@@ -153,7 +153,7 @@ for (const [name, generate, expected] of [
   ['EOF after partial text', async ({ send, socket }) => { await send({ event: 'text_delta', text: 'partial' }); socket.end(); }, 'response.failed'],
   ['malformed frame', async ({ socket }) => socket.write('not JSON\n'), 'response.failed'],
   ['length stop', async ({ send }) => { await send({ event: 'text_delta', text: 'partial' }); await send(done('length')); }, 'response.incomplete'],
-  ['aborted stop', async ({ send }) => send(done('aborted')), 'response.incomplete'],
+  ['aborted stop', async ({ send }) => send(done('aborted')), 'response.failed'],
   ['uncommitted tool on error', async ({ send }) => { await send({ event: 'toolcall_end', id: 1, name: 'read', arguments: {} }); await send({ event: 'error', code: 'io_error', error: 'Commit failed' }); }, 'response.failed'],
   ['invalid accounting before tool publication', async ({ send }) => {
     await send({ event: 'toolcall_end', id: 1, name: 'read', arguments: {} });

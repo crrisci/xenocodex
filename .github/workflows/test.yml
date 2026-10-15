@@ -24,9 +24,11 @@ jobs:
               raise SystemExit('Private paths must not be tracked: ' + forbidden)
           PYCODE
       - run: npm test
+      - name: Install and exercise packed CLI offline
+        run: npm run test:package
       - run: npm install --prefix "$RUNNER_TEMP/chat-sdk" --ignore-scripts openai@7.32.0
-      - name: Chat SDK integration
-        run: npm run test:chat
+      - name: Responses and Chat SDK integration
+        run: npm run test:sdk
         env:
           XENOLITH_BRIDGE_OPENAI_SDK: ${{ runner.temp }}/chat-sdk/node_modules/openai/index.mjs
       - uses: actions/setup-python@v5
@@ -86,7 +88,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Publish verified alpha
+      - name: Publish verified release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -95,7 +97,11 @@ jobs:
           ARCHIVE="xenolith-bridge-$VERSION.tar.gz"
           git archive --format=tar.gz --prefix="xenolith-bridge-$VERSION/" --output="$ARCHIVE" "$GITHUB_REF_NAME"
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
-          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" --verify-tag --prerelease --title "Xenolith Bridge $VERSION" --notes-file .github/RELEASE-NOTES.md
+          PACKAGE=$(npm pack --ignore-scripts --silent)
+          sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+          RELEASE_FLAGS=()
+          if [[ "$VERSION" == *-* ]]; then RELEASE_FLAGS+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" "$PACKAGE" "$PACKAGE.sha256" --verify-tag "${RELEASE_FLAGS[@]}" --title "Xenolith Bridge $VERSION" --notes-file .github/RELEASE-NOTES.md
       - name: Remove superseded oversized diagnostics
         env:
           GH_TOKEN: ${{ github.token }}

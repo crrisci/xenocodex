@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { AdapterError, invalid, object } from './errors.js';
+import { AdapterError, errorBody, object } from './errors.js';
 
 const id = prefix => `${prefix}_${randomUUID().replaceAll('-', '')}`;
+const invalid = message => { throw new AdapterError('io_error', message, 502); };
 
 export class ResponseStream {
-  constructor(model, registry, send) {
+  constructor(model, registry, send, { streaming = true } = {}) {
     this.send = send;
     this.registry = registry;
+    this.streaming = streaming;
     this.sequence = 0;
     this.response = { id: id('resp'), object: 'response', created_at: Math.floor(Date.now() / 1000),
       model, status: 'in_progress', output: [], error: null, incomplete_details: null };
@@ -17,6 +19,10 @@ export class ResponseStream {
   }
 
   async emit(type, data = {}) {
+    if (!this.streaming) {
+      if (['response.completed', 'response.incomplete'].includes(type)) await this.send(data.response);
+      return;
+    }
     await this.send({ type, sequence_number: this.sequence++, ...data });
   }
 
@@ -58,19 +64,25 @@ export class ResponseStream {
 
   async done(event, parallelToolCalls, beforePublish) {
     if (!['stop', 'tool_use', 'length', 'aborted'].includes(event.stop)) invalid('Unknown Xenolith stop reason');
+    if (event.stop === 'aborted') throw new AdapterError('io_error', 'Xenolith interrupted generation', 502);
     if (event.stop === 'tool_use' && (!this.calls.size || [...this.calls.values()].some(c => !c.arguments))) invalid('Incomplete Xenolith tool calls');
     if (event.stop === 'stop' && this.calls.size) invalid('Xenolith emitted calls without tool_use stop');
     if (event.stop === 'tool_use' && parallelToolCalls === false && this.calls.size > 1) invalid('Xenolith violated parallel_tool_calls:false');
     const usage = mapUsage(event.usage);
     // Validate all calls before publishing any executable item.
-    const tools = event.stop === 'tool_use' ? [...this.calls.entries()].map(([wireId, call]) =>
-      this.registry.output(call.name, call.arguments, `${this.response.id}_call_${wireId}`, id('fc'))) : [];
+    let tools = [];
+    if (event.stop === 'tool_use') {
+      try {
+        tools = [...this.calls.entries()].map(([wireId, call]) =>
+          this.registry.output(call.name, call.arguments, `${this.response.id}_call_${wireId}`, id('fc')));
+      } catch (error) { invalid(error.message); }
+    }
     await beforePublish?.();
     if (this.message) {
       const part = this.message.content[0];
       await this.emit('response.output_text.done', { output_index: 0, item_id: this.message.id, content_index: 0, text: part.text });
       await this.emit('response.content_part.done', { output_index: 0, item_id: this.message.id, content_index: 0, part });
-      this.message.status = event.stop === 'length' || event.stop === 'aborted' ? 'incomplete' : 'completed';
+      this.message.status = event.stop === 'length' ? 'incomplete' : 'completed';
       if (event.stop === 'stop') this.message.phase = 'final_answer';
       else if (event.stop === 'tool_use') this.message.phase = 'commentary';
       await this.emit('response.output_item.done', { output_index: 0, item: this.message });
@@ -91,9 +103,9 @@ export class ResponseStream {
     this.response.usage = usage;
     // Preserve native accounting without claiming conversation size is API usage.
     this.response.xenolith_usage = event.usage;
-    if (event.stop === 'length' || event.stop === 'aborted') {
+    if (event.stop === 'length') {
       this.response.status = 'incomplete';
-      this.response.incomplete_details = { reason: event.stop === 'length' ? 'max_output_tokens' : 'interrupted' };
+      this.response.incomplete_details = { reason: 'max_output_tokens' };
       await this.emit('response.incomplete', { response: this.response });
     } else {
       this.response.status = 'completed';
@@ -106,7 +118,8 @@ export class ResponseStream {
     if (this.finished) return;
     this.response.status = 'failed';
     this.response.error = { code: error.code ?? 'io_error', message: error.message };
-    await this.emit('response.failed', { response: this.response });
+    if (this.streaming) await this.emit('response.failed', { response: this.response });
+    else await this.send(errorBody(error), error.status ?? 502);
     this.finished = true;
   }
 }

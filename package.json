@@ -1,7 +1,6 @@
 {
   "name": "xenolith-bridge",
-  "version": "0.3.0-alpha.1",
-  "private": true,
+  "version": "0.3.0-rc.1",
   "license": "MIT",
   "description": "Local Responses and Chat Completions HTTP/SSE bridge for the Xenolith wire protocol",
   "type": "module",
@@ -21,7 +20,9 @@
     "test:persistence": "node test/model/persistence.js",
     "test:aider:real": "node test/model/aider.js",
     "test:aider:feedback:real": "node test/model/aider.js --feedback",
-    "test:kv": "node test/model/kv.js"
+    "test:kv": "node test/model/kv.js",
+    "test:sdk": "node --test test/client/*.test.js",
+    "test:package": "node --test test/package/*.test.js"
   },
   "files": [
     "src/",
@@ -29,5 +30,13 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crrisci/xenolith-bridge.git"
+  },
+  "homepage": "https://github.com/crrisci/xenolith-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/crrisci/xenolith-bridge/issues"
+  }
 }

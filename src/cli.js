@@ -10,12 +10,12 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 
 const help = `Xenolith Bridge ${version} — local Responses / Chat Completions / Xenolith v1 bridge
 
-  node src/cli.js serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv] [--state-dir DIR]
-  node src/cli.js run --socket PATH --codex-home DIR [--reuse-kv] [--state-dir DIR] -- exec [Codex arguments]
+  xenolith-bridge serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv] [--state-dir DIR]
+  xenolith-bridge run --socket PATH --codex-home DIR [--reuse-kv] [--state-dir DIR] -- exec [Codex arguments]
 
 Connects to an existing engine; does not spawn or stop Xenolith.
 run uses an explicit isolated CODEX_HOME and does not load user config/rules.
-Text, function/custom tools, namespaces and HTTP SSE are supported.
+Responses supports text, function/custom tools and namespaces through JSON or SSE.
 Chat Completions supports text and function tools through JSON or SSE.
 --reuse-kv enables process-local durable KV reuse for matching prompt_cache_key histories.
 Codex persisted resume and local text compaction are supported.

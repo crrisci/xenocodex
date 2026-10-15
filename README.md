@@ -13,10 +13,12 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 
 ## Current status
 
-**0.3.0-alpha.1 — development version.** Supported HTTP contracts are a Responses
-streaming subset and a Chat Completions text/function-tool subset (streaming or JSON).
+**0.3.0-rc.1 — release candidate for the text/tool contract below.**
+Both Responses and Chat Completions return JSON by default and support streaming.
+This is a defined subset of the APIs, not every feature offered by OpenAI.
 Codex CLI 0.162.1 is the reference Responses client used for integration tests.
-An isolated Aider 0.86.2 coding test also exercises Chat Completions against the simulator.
+Aider 0.86.2 exercises Chat Completions with the simulator and real inference.
+The OpenAI JavaScript SDK exercises JSON, streaming and tool history on both APIs.
 Compatibility with other clients must be checked against their actual requests.
 
 - Progressive text, function/custom tools, one namespace level and validated tool results.
@@ -31,8 +33,38 @@ The user chooses and configures the client. The bridge translates the supported
 HTTP contract into Xenolith wire operations; it does not choose an agent, execute
 tools or provide an agent interface. Clients must speak one of the documented
 subsets or use their own compatible adapter. Other HTTP APIs are not implemented.
-For Codex itself, the [native Xenolith fork](https://github.com/crrisci/codex/tree/xenolith-native)
+For Codex itself, the [CodeXe fork](https://github.com/crrisci/codexe/tree/xenolith-native)
 provides direct wire integration and local inference telemetry in the TUI.
+
+## Install and run
+
+Use Node.js 22 or newer on Linux or macOS and an existing text-only Xenolith v1
+Unix socket. Native Windows requires running the bridge inside WSL.
+
+From a source checkout:
+
+```sh
+git clone https://github.com/crrisci/xenolith-bridge.git
+cd xenolith-bridge
+npm exec --offline -- xenolith-bridge --help
+npm exec --offline -- xenolith-bridge serve --socket /absolute/path/wire.sock --port 8080
+```
+
+There is no dependency installation or build step. To install a downloaded source
+archive, or produce a portable npm package from a checkout:
+
+```sh
+npm pack
+# Produces xenolith-bridge-0.3.0-rc.1.tgz for this candidate.
+npm install --prefix /absolute/private/bridge-install ./xenolith-bridge-0.3.0-rc.1.tgz
+npm exec --prefix /absolute/private/bridge-install -- xenolith-bridge serve --socket /absolute/path/wire.sock
+```
+
+A GitHub source-release `.tar.gz` can also be passed directly to `npm install`.
+Global installation is optional: `npm install -g ./xenolith-bridge-0.3.0-rc.1.tgz`
+then `xenolith-bridge serve --socket /absolute/path/wire.sock`.
+This candidate is prepared for npm packaging; it has not been published to the npm
+registry. No credentials, runtime SDK, engine or model are bundled.
 
 ## Start the bridge
 
@@ -50,7 +82,7 @@ Endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/responses` | Streaming inference; requires `stream:true` |
+| POST | `/v1/responses` | Text/tool inference; JSON by default, SSE with `stream:true` |
 | POST | `/v1/chat/completions` | Text/function inference; JSON by default, SSE with `stream:true` |
 | GET | `/v1/models` | Served model |
 | GET | `/healthz` | Initial discovery/readiness information |
@@ -68,6 +100,57 @@ persistent bindings. Client selection and client configuration remain up to you.
 
 Every inference checks the engine again. A change in model/context/output capacity
 requires restarting the bridge. The request must name the exact served model.
+
+## API contract
+
+Send the full conversation on each turn. Response IDs identify results; they do
+not enable server-side conversation storage or retrieval. Omit `store` or use
+`store:false`. Both endpoints reject unknown request fields rather than silently
+pretending to implement them.
+
+| Capability / control | Responses | Chat Completions |
+|---|---|---|
+| Input | `input` text or ordered input items, optional `instructions` | `messages` with text content |
+| JSON / streaming | Omit `stream` or set false / set true | Same |
+| Streaming format | Named SSE events, ending in `response.completed`, `response.incomplete` or `response.failed` | Data-only chunks, ending in `[DONE]` |
+| Tools | Function/custom tools and one namespace level | Function tools |
+| Tool choice | `auto` (default) or `none` | Same |
+| Historical tool results | Matched `call_id`, in call order | Matched `tool_call_id`, in call order |
+| `temperature` | 0–2 | Same |
+| `top_p` | Greater than 0, at most 1 | Same |
+| Output limit | `max_output_tokens` | `max_tokens` or `max_completion_tokens`, not both |
+| Parallel tools | `parallel_tool_calls` boolean | Same |
+| Persistence identity | `prompt_cache_key` or `X-Xenolith-Session` | Same |
+| Schemas | Non-strict function schemas; omitted parameters mean an empty object | Same |
+| Output limit reached | `status:incomplete`, reason `max_output_tokens` | `finish_reason:length` |
+| Engine/wire failure | JSON HTTP error, or a typed `response.failed` SSE event | JSON HTTP error, or an SSE error then `[DONE]` |
+
+Output defaults to the smaller of the launcher's `--max-output-tokens` setting
+(default 4096) and the engine's advertised limit. An explicit request limit may
+select any positive integer up to the advertised engine limit.
+`tool_choice:none` removes current executable declarations while retaining past
+tool calls/results as history. Forced/required tool choices are rejected, as are
+strict schemas: the bridge cannot guarantee schema-constrained engine output.
+Custom-tool grammar definitions are prompt guidance, not enforced constraints.
+
+The JSON Responses body is a complete `response` object with output items, status,
+usage and native extensions. It is withheld until terminal validation and any
+persistent commit succeed. Partial JSON and uncommitted tools are never returned
+as a successful answer. On streaming responses, text can arrive before completion;
+clients must inspect the terminal status before treating the answer as successful.
+
+OpenAI's SDK provides `response.output_text` as a helper; raw JSON consumers can
+read `output[].content[]` entries with `type:output_text`.
+An upstream abort without a client disconnect is an engine error on both APIs.
+A client disconnect sends best-effort wire cancellation, including in JSON mode.
+
+Responses supports the existing Codex compatibility include
+`reasoning.encrypted_content` only as an empty capability with reasoning disabled;
+no reasoning item or encrypted content is fabricated. JSON formats, verbosity,
+reasoning, hosted tools and storage remain outside this contract.
+
+Reference: [Responses](https://developers.openai.com/api/reference/resources/responses/methods/create)
+and [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
 
 ## Chat Completions subset
 
@@ -254,7 +337,8 @@ HTTP disconnects send best-effort cancellation and drain the terminal exchange.
 npm test
 XENOLITH_BRIDGE_CODEX_BIN=/absolute/path/to/codex npm run test:codex
 npm install --prefix .test-artifacts/chat-sdk --ignore-scripts openai@7.32.0
-npm run test:chat
+npm run test:sdk
+npm run test:package
 ```
 
 Unit tests use a wire simulator. Installed-client tests exercise actual requests,
@@ -263,7 +347,7 @@ binding tests include orderly restart, pending tool IDs, divergent markers,
 uncertain generation and persistence failure before tool publication. Lock tests use
 real competing processes, SIGSTOP/SIGKILL, path aliases and an occupied guard port.
 Chat tests cover JSON/SSE, an actual file-read result, restart, cancellation and errors.
-The optional SDK tests use OpenAI's JavaScript SDK 7.32.0 against the local simulator,
+The optional SDK tests cover both APIs using OpenAI's JavaScript SDK 7.32.0 against the local simulator,
 with no external inference. To use another installation, set
 `XENOLITH_BRIDGE_OPENAI_SDK` to its absolute `openai/index.mjs` path. The SDK is a test
 dependency only. These checks also run in the Linux/macOS, Node 22/24 CI matrix.
@@ -393,15 +477,22 @@ A fresh session can still report native cache reuse; inspect `cache_read` rather
 than assuming an empty cache. Runs are sequential and warm-first; results are diagnostics for the selected
 engine and synthetic text, not a randomized benchmark or general savings claim.
 
-## Next milestones and unsupported features
+## Validation and remaining scope
 
-The persistent text/function-tool path now has real-engine crash and recovery
-coverage, plus a small real-model Aider coding check and repeatable KV diagnostics
-across context sizes and changed history. Next: broaden coding tasks and harnesses,
-exercise Aider error feedback with real inference, and compare KV measurements
-across engine builds and more representative conversations.
-The focus remains durable sessions, honest cache/checkpoint reports, cancellation
-and tool/result integrity. No client-specific frontend is planned.
+The real-model roadmap for multi-file Aider feedback, coding-context measurements
+and the base/LNL engine comparison is complete. Both builds passed the Aider
+error/correction scenario, the Codex coding/compaction/restart lifecycle and the
+Chat crash/recovery battery. These are bounded acceptance checks on one Gemma
+model and host; they do not establish general model quality or engine performance.
+
+The Responses JSON path is additionally checked through the official SDK with a
+wire simulator: tool-result continuation after restart, output caps, errors,
+cancellation and commit-before-publication. Package checks install a packed CLI
+offline in an empty directory and exercise both APIs. CI runs on Linux/macOS with
+Node 22/24. Detailed real-model reports and raw requests remain private.
+
+The release scope is the two documented text/tool APIs. Other clients, model builds
+and edit formats need acceptance checks against their actual requests.
 
 Reasoning/history reasoning, images/audio, hosted/deferred tools, nested namespaces,
 constrained JSON/verbosity, compressed requests, WebSocket, `previous_response_id`,

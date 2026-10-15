@@ -21,11 +21,11 @@ export function translateRequest(body, info, { maxOutputTokens = 4096 } = {}) {
     'text', 'max_output_tokens', 'temperature', 'top_p']);
   for (const key of Object.keys(body)) if (!supported.has(key)) unsupported(`Request field ${key} is not supported`);
   if (body.model !== info.model) invalid(`Only the served model ${info.model} is available`);
-  if (body.stream !== true) unsupported('Only stream:true is supported');
-  if (body.store !== undefined && body.store !== false) unsupported('Response storage is not supported');
-  if (body.tool_choice !== undefined && body.tool_choice !== 'auto') unsupported('Only tool_choice:auto is supported');
-  if (body.parallel_tool_calls !== undefined && typeof body.parallel_tool_calls !== 'boolean') invalid('parallel_tool_calls must be boolean');
-  if (body.text !== undefined && (!object(body.text) || Object.keys(body.text).some(k => k !== 'format') ||
+  if (body.stream != null && typeof body.stream !== 'boolean') invalid('stream must be boolean');
+  if (body.store != null && body.store !== false) unsupported('Response storage is not supported');
+  if (body.tool_choice != null && !['auto', 'none'].includes(body.tool_choice)) unsupported('Only tool_choice:auto or none is supported');
+  if (body.parallel_tool_calls != null && typeof body.parallel_tool_calls !== 'boolean') invalid('parallel_tool_calls must be boolean');
+  if (body.text != null && (!object(body.text) || Object.keys(body.text).some(k => k !== 'format') ||
       (body.text.format && (!object(body.text.format) || body.text.format.type !== 'text' ||
         Object.keys(body.text.format).some(k => k !== 'type'))))) unsupported('Structured output and verbosity are not supported');
   if (body.reasoning !== undefined && body.reasoning !== null) {
@@ -39,7 +39,8 @@ export function translateRequest(body, info, { maxOutputTokens = 4096 } = {}) {
       body.include.some(i => i !== 'reasoning.encrypted_content'))) unsupported('Unsupported include field');
   // Codex sends this include even for a local model. With reasoning disabled,
   // there is no reasoning item and no encrypted content to fabricate.
-  const registry = new ToolRegistry(body.tools ?? []);
+  let registry = new ToolRegistry(body.tools ?? []);
+  if (body.tool_choice === 'none') registry = new ToolRegistry();
   if (body.prompt_cache_key !== undefined && (typeof body.prompt_cache_key !== 'string' || body.prompt_cache_key.length > 512)) invalid('prompt_cache_key must be a string of at most 512 characters');
   const input = typeof body.input === 'string' ? [{ type: 'message', role: 'user', content: body.input }] : body.input;
   if (!Array.isArray(input) || input.length === 0) invalid('input must contain at least one message');
@@ -104,16 +105,16 @@ export function translateRequest(body, info, { maxOutputTokens = 4096 } = {}) {
       [...calls.values()].some(({ tool }) => !tool.namespace && ['exec_command', 'write_stdin'].includes(tool.name))) {
     request.system = [request.system, TOOL_RESULT_GUIDANCE].filter(Boolean).join('\n\n');
   }
-  if (body.temperature !== undefined) {
-    if (!Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 100) invalid('Invalid temperature');
+  if (body.temperature != null) {
+    if (!Number.isFinite(body.temperature) || body.temperature < 0 || body.temperature > 2) invalid('temperature must be between 0 and 2');
     request.temperature = body.temperature;
   }
-  if (body.top_p !== undefined) {
+  if (body.top_p != null) {
     if (!Number.isFinite(body.top_p) || body.top_p <= 0 || body.top_p > 1) invalid('Invalid top_p');
     request.top_p = body.top_p;
   }
   validateWireValue(request);
-  return { request, registry };
+  return { request, registry, streaming: body.stream === true };
 }
 
 function validateWireValue(value, depth = 0) {

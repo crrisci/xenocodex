@@ -1,4 +1,4 @@
-import { AdapterError, errorBody, invalid, object, unsupported } from './errors.js';
+import { errorBody, invalid, object, unsupported } from './errors.js';
 import { translateRequest } from './translate.js';
 import { ResponseStream } from './responses.js';
 
@@ -111,10 +111,6 @@ export class ChatStream extends ResponseStream {
   async chunk(delta, finish_reason = null, extra = {}) {
     await this.send({ ...this.envelope(), choices: [{ index: 0, delta, logprobs: null, finish_reason }],
       ...(this.includeUsage ? { usage: null } : {}), ...extra });
-  }
-  async done(event, parallelToolCalls, beforePublish) {
-    if (event.stop === 'aborted') throw new AdapterError('io_error', 'Xenolith interrupted generation', 502);
-    await super.done(event, parallelToolCalls, beforePublish);
   }
   async emit(type, data) {
     if (this.streaming && type === 'response.created') await this.chunk({ role: 'assistant', content: '' });

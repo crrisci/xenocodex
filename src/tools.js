@@ -21,6 +21,7 @@ export class ToolRegistry {
       if (!['function', 'custom'].includes(tool.type)) unsupported(`Tool type ${tool.type} is not supported`);
       if (tool.description !== undefined && typeof tool.description !== 'string') invalid('Tool description must be a string');
       if (tool.defer_loading) unsupported('Deferred tools are not supported');
+      if (tool.strict != null && tool.strict !== false) unsupported('Strict tool schemas are not supported');
       const identity = JSON.stringify([namespace ?? null, tool.name]);
       if (this.byIdentity.has(identity)) invalid(`Duplicate tool ${identity}`);
       // Preserve plain names when possible. Qualified identities use a stable hash
@@ -29,7 +30,7 @@ export class ToolRegistry {
         ? tool.name : `xc_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
       if (this.byWire.has(wireName)) invalid('Tool wire name collision');
       const entry = { name: tool.name, namespace, type: tool.type, wireName };
-      let parameters = tool.parameters;
+      let parameters = tool.parameters ?? { type: 'object', properties: {} };
       if (tool.type === 'custom') {
         if (tool.format && !['text', 'grammar'].includes(tool.format.type)) unsupported('Unsupported custom tool format');
         parameters = { type: 'object', properties: {

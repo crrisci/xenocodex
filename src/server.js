@@ -79,7 +79,7 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
         wire = lease.wire;
       }
       wires.add(wire);
-      const streaming = !chat || translated.streaming;
+      const streaming = translated.streaming;
       if (streaming) {
         res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
@@ -100,7 +100,7 @@ export async function startAdapter({ socketPath, port = 0, maxBodyBytes = 8 * 10
         }
       };
       stream = chat ? new ChatStream(info.model, translated.registry, send, translated)
-        : new ResponseStream(info.model, translated.registry, send);
+        : new ResponseStream(info.model, translated.registry, send, { streaming });
       await stream.start();
       for await (const event of wire.stream(lease?.request ?? translated.request, { signal: abort.signal, timeoutMs: generationTimeoutMs })) {
         await onWireEvent?.(event);

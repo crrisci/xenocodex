@@ -73,7 +73,7 @@ test('Codex execution metadata remains intact with explicit interpretation guida
 });
 
 for (const [label, override] of [
-  ['nonstreaming', { stream: false }], ['wrong model', { model: 'other' }],
+  ['invalid stream', { stream: 'true' }], ['wrong model', { model: 'other' }],
   ['images', { input: [{ role: 'user', content: [{ type: 'input_image', image_url: 'x' }] }] }],
   ['reasoning effort', { reasoning: { effort: 'high' } }],
   ['hosted tools', { tools: [{ type: 'web_search', name: 'search' }] }],
@@ -81,6 +81,8 @@ for (const [label, override] of [
   ['continuation IDs', { previous_response_id: 'resp_other' }],
   ['response storage', { store: true }], ['explicit tool choice', { tool_choice: 'required' }],
   ['empty transcript', { input: [] }], ['invalid temperature', { temperature: -1 }],
+  ['excessive temperature', { temperature: 2.1 }],
+  ['strict schemas', { tools: [{ ...fn('read'), strict: true }] }],
   ['zero output cap', { max_output_tokens: 0 }],
   ['embedded NUL', { input: 'a\0b' }],
   ['reasoning history', { input: [{ type: 'reasoning', summary: [] }] }],

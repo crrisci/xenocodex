@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-rc.1
+
+- Add Responses JSON output by default, retaining SSE with `stream:true`, bounded accumulation and commit-before-publication.
+- Support `tool_choice:none` on both APIs; align temperature limits and null optional controls. Reject strict function schemas explicitly and classify malformed native calls as engine errors.
+- Verify Responses through the official OpenAI SDK, including progressive text, JSON, output caps, typed failures and actual tool-result continuation across restart.
+- Add offline installation/CLI smoke checks in CI, package metadata and a precise API contract. Refresh completed milestones and installation instructions.
+
 ## 0.3.0-alpha.1 (development)
 
 - Record per-request context decisions, native usage and wire timings in coding diagnostics; add persistent bindings and an explicit snapshot-restoration check to the opt-in Codex coding lifecycle.
