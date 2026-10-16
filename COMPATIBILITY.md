@@ -26,6 +26,18 @@ versions do not become supported just because their packages can be installed.
 Promote a newer reference version only after reviewing actual request behavior
 and passing the relevant tests; record the version change in the changelog.
 
+## Candidate observations (2026-10-16)
+
+Codex 0.163.0 passed all eight integration cases on the local Mac. On Linux,
+two early-warning runs failed three tool-result/compaction cases because the
+expected file contents were absent from the returned tool history. A later run
+passed after adding diagnostic logging; no runtime fix was made and the cause
+has not been established. Treat this as an unresolved intermittent observation,
+not a proven Bridge regression or a verified client fix. Keep 0.162.1 as the
+release reference until the behavior can be reproduced and explained. Tests
+still require actual file results and successful tool execution; no assertions
+were removed to obtain a pass.
+
 ## Report a failure
 
 Use the repository's Bug report issue form with a minimal request containing

@@ -27,6 +27,9 @@ run has been performed: the previous test host is no longer available. Earlier
 0.3.0 base/LNL Aider, Codex and recovery results are historical evidence, not
 verification of the new diagnostic or transport changes on a real engine.
 Persistent bindings remain experimental. Independent feedback is optional.
+Codex 0.163.0 showed intermittent Linux tool-result/compaction failures in the
+early-warning probes before a later pass; the cause is unresolved and 0.162.1
+remains the reference. See COMPATIBILITY.md for the observed scope.
 
 Requires Node.js >=22 and an existing text-only Xenolith wire v1 engine; Windows
 requires WSL. No runtime dependencies, engine or model are bundled. Local source
