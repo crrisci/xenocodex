@@ -1,6 +1,6 @@
 Xenolith Bridge 0.4.0-rc.1 — candidate for diagnostics and protocol hardening.
 
-This candidate is prepared for review; it has not been tagged or published.
+This prerelease is available for testing diagnostics and protocol hardening.
 The supported Responses and Chat Completions text/tool contract remains the
 same as 0.3.0, with JSON by default and SSE when `stream:true`.
 

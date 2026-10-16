@@ -2,7 +2,7 @@
 
 ## Validation scope
 
-The upcoming `0.4.0-rc.1` is a development candidate, not a published release.
+`0.4.0-rc.1` is a prerelease candidate; the latest stable release remains 0.3.0.
 It adds diagnostics/reporting and protocol hardening to the 0.3.0 text/tool
 contract. Current verification uses wire simulators and real client software;
 no new real-engine run is claimed. The earlier 0.3.0 base/LNL evidence remains
@@ -15,7 +15,7 @@ It cannot establish model quality, native KV restoration or performance.
 ## Install a candidate in a clean prefix
 
 Use Node.js >=22 on Linux/macOS, or WSL. From this checkout, prepare a local
-archive without publishing:
+archive, or download the matching archive and checksum from GitHub Releases:
 
 ```sh
 npm pack --ignore-scripts
@@ -132,4 +132,4 @@ This is a package/HTTP check, not evidence of real-model compatibility.
    Disclose the absent new real-engine run in the README and release notes.
 4. Review the candidate version, notes and packed contents before tagging.
    After publication, download both archives, verify checksums/content and test
-   clean installation. Preparing this candidate does not publish its tag.
+   clean installation. Publishing a candidate tag creates a prerelease, not a stable release.

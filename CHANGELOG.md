@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0-rc.1 (unreleased)
+## 0.4.0-rc.1
 
 - Add `doctor` to inspect Node, Unix socket reachability and wire v1 capabilities without loading a model, creating sessions or generating text. Include a bounded deadline, machine-readable local output and nonzero failure status.
 - Add private, field-limited doctor/acceptance summaries and a `report` command. Exclude arbitrary native text, paths, model names, prompts and tool results; refuse overwrites. Preserve partial acceptance outcomes and distinguish self-reported real runs from describe-only checks.

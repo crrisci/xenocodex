@@ -13,7 +13,7 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 
 ## Current status
 
-**0.4.0-rc.1 — development candidate; not yet published.**
+**[0.4.0-rc.1](https://github.com/crrisci/xenolith-bridge/releases/tag/v0.4.0-rc.1) — prerelease for diagnostics and protocol hardening.**
 
 The latest published stable release is [0.3.0](https://github.com/crrisci/xenolith-bridge/releases/tag/v0.3.0).
 This candidate adds read-only diagnostics, field-limited reports and protocol fault hardening.
@@ -76,8 +76,7 @@ npm exec --prefix /absolute/private/bridge-install -- xenolith-bridge serve --so
 A GitHub source-release `.tar.gz` can also be passed directly to `npm install`.
 Global installation is optional: `npm install -g ./xenolith-bridge-0.4.0-rc.1.tgz`
 then `xenolith-bridge serve --socket /absolute/path/wire.sock`.
-Published installable archives are distributed through GitHub Releases; this
-development candidate has not been published. The package is not on the npm registry. No credentials, runtime SDK, engine or model are bundled.
+Installable archives and checksum sidecars are distributed through GitHub Releases. The package is not on the npm registry. No credentials, runtime SDK, engine or model are bundled.
 
 ## Diagnose and report
 
