@@ -39,6 +39,7 @@ export class WireConnection {
   fail(error) {
     if (this.error) return;
     this.error = error;
+    this.buffer = Buffer.alloc(0);this.queue = [];this.queueBytes = 0;
     if (this.waiter) { this.waiter.reject(error); this.waiter = null; }
     this.socket.destroy();
   }
@@ -46,6 +47,7 @@ export class WireConnection {
   close() { this.fail(new AdapterError('io_error', 'Wire connection closed', 502)); }
 
   receive(chunk) {
+    if (this.error) return;
     this.buffer = Buffer.concat([this.buffer, chunk]);
     for (;;) {
       const end = this.buffer.indexOf(10);
@@ -61,8 +63,8 @@ export class WireConnection {
       this.buffer = this.buffer.subarray(end + 1);
       if (!line.length) continue;
       let value;
-      try { value = JSON.parse(line.toString('utf8')); }
-      catch { this.fail(new AdapterError('io_error', 'Malformed JSON from Xenolith', 502)); return; }
+      try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(line)); }
+      catch { this.fail(new AdapterError('io_error', 'Malformed JSON or UTF-8 from Xenolith', 502)); return; }
       if (!object(value)) { this.fail(new AdapterError('io_error', 'Wire frame must be an object', 502)); return; }
       if (this.waiter) {
         const waiter = this.waiter;
@@ -79,9 +81,9 @@ export class WireConnection {
   }
 
   next() {
+    if (this.error) return Promise.reject(this.error);
     const queued = this.queue.shift();
     if (queued) { this.queueBytes -= queued.bytes; return Promise.resolve(queued.value); }
-    if (this.error) return Promise.reject(this.error);
     return new Promise((resolve, reject) => { this.waiter = { resolve, reject }; });
   }
 
@@ -99,6 +101,7 @@ export class WireConnection {
     try {
       this.send(request);
       const response = await this.next();
+      if (this.error) throw this.error;
       if (response.ok === false) throw wireError(response);
       if (response.ok !== true) throw new AdapterError('io_error', 'Expected a wire reply', 502);
       return response;
@@ -142,6 +145,7 @@ export class WireConnection {
       signal?.addEventListener('abort', cancel, { once: true });
       for (;;) {
         const event = await this.next();
+        if (this.error) throw this.error;
         if ('ok' in event) {
           if (cancelSent) {
             // The ACK can be interleaved, and a late cancel can be rejected.

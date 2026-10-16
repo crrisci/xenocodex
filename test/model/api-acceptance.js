@@ -78,54 +78,57 @@ export async function runAcceptance({ root, connect, restart, requireSnapshot = 
   for (const api of ['responses', 'chat/completions']) for (const stream of [false, true]) {
     const label = `${api === 'responses' ? 'responses' : 'chat'}-${stream ? 'sse' : 'json'}`;
     const caseRoot = join(root, label);await mkdir(caseRoot, { recursive: true });
-    const nonce = `BRIDGE_${randomUUID()}`;await writeFile(join(caseRoot, 'input.txt'), nonce);
-    const key = randomUUID();let { baseUrl, model } = await connect();
-    const responses = api === 'responses';
-    const common = { model, stream, temperature: 0, parallel_tool_calls: false,
-      ...(responses ? { instructions, store: false, max_output_tokens: 512, tools: [{ type: 'function', ...tool, strict: false }] }
-        : { max_completion_tokens: 512, tools: [{ type: 'function', function: { ...tool, strict: false } }],
-          ...(stream ? { stream_options: { include_usage: true } } : {}) }) };
-    let history = [...(responses ? [] : [{ role: 'system', content: instructions }]), { role: 'user', content: 'Read input.txt using read_file and return its entire contents.' }];
-    const payload = () => ({ ...common, ...(responses ? { input: history } : { messages: history }) });
-    const first = await request(baseUrl, api, payload(), key);
-    await writeFile(join(caseRoot, 'first.json'), JSON.stringify(first, null, 2));
-    const calls = responses ? first.value.output.filter(i => i.type === 'function_call') : first.value.choices[0].message.tool_calls;
-    assert.equal(calls?.length, 1, 'Expected exactly one file read');
-    const call = calls[0], fn = responses ? call : call.function;
-    assert.equal(fn.name, 'read_file');assert.deepEqual(JSON.parse(fn.arguments), { path: 'input.txt' });
-    assert.equal(first.value.xenolith_session?.checkpoint?.saved, true, 'Tool must have a durable checkpoint');
-    // Execute only the validated fixture path. The nonce was never in the prompt.
-    const actual = await readFile(join(caseRoot, 'input.txt'), 'utf8');
-    history.push(...(responses ? [...first.value.output, { type: 'function_call_output', call_id: call.call_id, output: actual }]
-      : [first.value.choices[0].message, { role: 'tool', tool_call_id: call.id, content: actual }]));
-    await restart(`${label}-pending-tool`);({ baseUrl, model } = await connect());assert.equal(model, common.model);
-    const second = await request(baseUrl, api, payload(), key);
-    await writeFile(join(caseRoot, 'second.json'), JSON.stringify(second, null, 2));
-    assert.equal(answer(api, second.value).trim(), nonce);
-    if (requireSnapshot) {
-      assert.equal(second.value.xenolith_session?.resume?.loaded, true, 'Engine must explicitly report snapshot restoration');
-      const cached = responses ? second.value.usage.input_tokens_details.cached_tokens : second.value.usage.prompt_tokens_details.cached_tokens;
-      assert.ok(cached > 0, 'Engine must report actual cache reuse');
-    }
-    if (stream) assert.ok(second.first_text_ms !== undefined, 'Expected progressive text');
-    history.push(...(responses ? second.value.output : [second.value.choices[0].message]));
-    let cancellation;
-    if (stream) {
-      const committed = [...history];history.push({ role: 'user', content: 'List all integers from 1 to 10000, one per line. Do not use tools.' });
-      cancellation = await request(baseUrl, api, { ...payload(), tool_choice: 'none' }, key, { cancelAfterText: true, beforeCancel });
-      await writeFile(join(caseRoot, 'cancel.json'), JSON.stringify(cancellation, null, 2));
-      await restart(`${label}-cancelled`);({ baseUrl } = await connect());
-      // Discard the interrupted turn and supply only committed history.
-      history = [...committed, { role: 'user', content: 'Return exactly the previous file contents again. Do not read the file again.' }];
-      const recovered = await request(baseUrl, api, { ...payload(), tool_choice: 'none' }, key);
-      await writeFile(join(caseRoot, 'recovered.json'), JSON.stringify(recovered, null, 2));
-      assert.equal(answer(api, recovered.value).trim(), nonce);
-    }
-    const result = { case: label, status: 'passed', actual_file_reads: 1, restart_before_result: true,
-      snapshot_required: requireSnapshot, resume: second.value.xenolith_session?.resume,
-      first_text_ms: second.first_text_ms, cancellation: cancellation?.cancelled ?? false };
-    results.push(result);await writeFile(join(root, 'cases.json'), JSON.stringify(results, null, 2));
-    console.log(`API_ACCEPTANCE_PASS ${label}`);
+    const current = { case: label, status: 'failed' };results.push(current);
+    try {
+      const nonce = `BRIDGE_${randomUUID()}`;await writeFile(join(caseRoot, 'input.txt'), nonce);
+      const key = randomUUID();let { baseUrl, model } = await connect();
+      const responses = api === 'responses';
+      const common = { model, stream, temperature: 0, parallel_tool_calls: false,
+        ...(responses ? { instructions, store: false, max_output_tokens: 512, tools: [{ type: 'function', ...tool, strict: false }] }
+          : { max_completion_tokens: 512, tools: [{ type: 'function', function: { ...tool, strict: false } }],
+            ...(stream ? { stream_options: { include_usage: true } } : {}) }) };
+      let history = [...(responses ? [] : [{ role: 'system', content: instructions }]), { role: 'user', content: 'Read input.txt using read_file and return its entire contents.' }];
+      const payload = () => ({ ...common, ...(responses ? { input: history } : { messages: history }) });
+      const first = await request(baseUrl, api, payload(), key);
+      await writeFile(join(caseRoot, 'first.json'), JSON.stringify(first, null, 2));
+      const calls = responses ? first.value.output.filter(i => i.type === 'function_call') : first.value.choices[0].message.tool_calls;
+      assert.equal(calls?.length, 1, 'Expected exactly one file read');
+      const call = calls[0], fn = responses ? call : call.function;
+      assert.equal(fn.name, 'read_file');assert.deepEqual(JSON.parse(fn.arguments), { path: 'input.txt' });
+      assert.equal(first.value.xenolith_session?.checkpoint?.saved, true, 'Tool must have a durable checkpoint');
+      // Execute only the validated fixture path. The nonce was never in the prompt.
+      const actual = await readFile(join(caseRoot, 'input.txt'), 'utf8');
+      history.push(...(responses ? [...first.value.output, { type: 'function_call_output', call_id: call.call_id, output: actual }]
+        : [first.value.choices[0].message, { role: 'tool', tool_call_id: call.id, content: actual }]));
+      await restart(`${label}-pending-tool`);({ baseUrl, model } = await connect());assert.equal(model, common.model);
+      const second = await request(baseUrl, api, payload(), key);
+      await writeFile(join(caseRoot, 'second.json'), JSON.stringify(second, null, 2));
+      assert.equal(answer(api, second.value).trim(), nonce);
+      if (requireSnapshot) {
+        assert.equal(second.value.xenolith_session?.resume?.loaded, true, 'Engine must explicitly report snapshot restoration');
+        const cached = responses ? second.value.usage.input_tokens_details.cached_tokens : second.value.usage.prompt_tokens_details.cached_tokens;
+        assert.ok(cached > 0, 'Engine must report actual cache reuse');
+      }
+      if (stream) assert.ok(second.first_text_ms !== undefined, 'Expected progressive text');
+      history.push(...(responses ? second.value.output : [second.value.choices[0].message]));
+      let cancellation;
+      if (stream) {
+        const committed = [...history];history.push({ role: 'user', content: 'List all integers from 1 to 10000, one per line. Do not use tools.' });
+        cancellation = await request(baseUrl, api, { ...payload(), tool_choice: 'none' }, key, { cancelAfterText: true, beforeCancel });
+        await writeFile(join(caseRoot, 'cancel.json'), JSON.stringify(cancellation, null, 2));
+        await restart(`${label}-cancelled`);({ baseUrl } = await connect());
+        // Discard the interrupted turn and supply only committed history.
+        history = [...committed, { role: 'user', content: 'Return exactly the previous file contents again. Do not read the file again.' }];
+        const recovered = await request(baseUrl, api, { ...payload(), tool_choice: 'none' }, key);
+        await writeFile(join(caseRoot, 'recovered.json'), JSON.stringify(recovered, null, 2));
+        assert.equal(answer(api, recovered.value).trim(), nonce);
+      }
+      const result = { case: label, status: 'passed', actual_file_reads: 1, restart_before_result: true,
+        snapshot_required: requireSnapshot, resume: second.value.xenolith_session?.resume,
+        first_text_ms: second.first_text_ms, cancellation: cancellation?.cancelled ?? false };
+      Object.assign(current, result);
+      console.log(`API_ACCEPTANCE_PASS ${label}`);
+    } finally { await writeFile(join(root, 'cases.json'), JSON.stringify(results, null, 2)); }
   }
   return results;
 }

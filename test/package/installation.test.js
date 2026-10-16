@@ -50,6 +50,12 @@ test('packed CLI installs offline, resolves through npm exec and serves both JSO
     child.once('exit', code => { clearTimeout(timer);reject(Error(`CLI exited ${code}: ${stderr}`)); });
     child.stdout.on('data', b => { out += b;if (out.includes('\n')) { clearTimeout(timer);resolve(JSON.parse(out.split('\n')[0])); } });
   });
+  const beforeDoctor = fake.requests.length;
+  const doctorReport = join(root, 'doctor-summary.json');
+  const diagnosis = await run(npm, [...prefix, 'doctor', '--socket', fake.socketPath, '--report', doctorReport], install, env);
+  assert.match(diagnosis, /protocol: passed/);
+  assert.deepEqual(fake.requests.slice(beforeDoctor), [{ op: 'describe' }]);
+  assert.equal(JSON.parse(await readFile(doctorReport, 'utf8')).evidence, 'describe_only_no_inference');
   for (const [endpoint, input] of [['responses', { input: 'hello' }], ['chat/completions', { messages: [{ role: 'user', content: 'hello' }] }]]) {
     const response = await fetch(info.base_url + '/' + endpoint, { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: info.model, ...input }) });

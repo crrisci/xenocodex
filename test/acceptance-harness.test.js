@@ -53,3 +53,24 @@ test('real acceptance gate rejects a correct answer without explicit snapshot re
     restart: async () => { await adapter.close();await start(); } }), /explicitly report snapshot restoration/);
   assert.equal(calls, 2);assert.deepEqual(fake.errors, []);
 });
+
+test('acceptance failures preserve completed cases for the shareable summary', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const root = await testRoot('acceptance-partial');let adapter, fake, turns = 0;
+  fake = await startFakeWire(root, { durable: true, persistent: true, generate: async ({ session, send }) => {
+    turns++;
+    if (turns === 1) { await send({ event: 'toolcall_end', id: 1, name: 'read_file', arguments: { path: 'input.txt' } });await send(done('tool_use')); }
+    else if (turns === 2) {
+      const nonce = JSON.stringify(fake.sessions.get(session).messages).match(/BRIDGE_[a-f0-9-]+/)[0];
+      await send({ event: 'text_delta', text: nonce });await send(done());
+    } else await send({ event: 'error', code: 'io_error', error: 'injected-test-failure' });
+  } });
+  t.after(async () => { await adapter?.close();await fake.close(); });
+  const start = async () => { adapter = await startAdapter({ socketPath: fake.socketPath, stateDir: join(root, 'bindings') }); };await start();
+  await assert.rejects(runAcceptance({ root, requireSnapshot: false,
+    connect: async () => ({ baseUrl: adapter.baseUrl, model: adapter.info.model }),
+    restart: async () => { await adapter.close();await start(); } }), /injected-test-failure/);
+  const partial = JSON.parse(await readFile(join(root, 'cases.json'), 'utf8'));
+  assert.deepEqual(partial.map(c => [c.case, c.status]), [['responses-json', 'passed'], ['responses-sse', 'failed']]);
+  assert.deepEqual(fake.errors, []);
+});

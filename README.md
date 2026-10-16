@@ -13,7 +13,10 @@ Responses / Chat Completions client → HTTP/SSE → Xenolith Bridge → Unix so
 
 ## Current status
 
-**0.3.0 — stable release of the text/tool contract below.**
+**0.4.0-rc.1 — development candidate; not yet published.**
+
+The latest published stable release is [0.3.0](https://github.com/crrisci/xenolith-bridge/releases/tag/v0.3.0).
+This candidate adds read-only diagnostics, field-limited reports and protocol fault hardening.
 
 See [release acceptance](ACCEPTANCE.md) for clean installation, real-engine
 checks and the validation scope of this release.
@@ -29,7 +32,7 @@ Validation combines automated wire-simulator/client/package checks with earlier
 real-engine Aider, Codex and recovery runs on base/LNL builds. The new complete
 JSON/SDK matrix has not been rerun on a real engine: access to the test hardware
 ended before final release validation. Stable status applies to the documented
-contract; persistent bindings remain experimental. See [validation details](ACCEPTANCE.md).
+0.3.0 contract; persistent bindings remain experimental in this candidate too. See [validation details](ACCEPTANCE.md).
 
 - Progressive text, function/custom tools, one namespace level and validated tool results.
 - Bounded process-local KV reuse with `--reuse-kv`.
@@ -65,16 +68,47 @@ archive, or produce a portable npm package from a checkout:
 
 ```sh
 npm pack
-# Produces xenolith-bridge-0.3.0.tgz for this release.
-npm install --prefix /absolute/private/bridge-install ./xenolith-bridge-0.3.0.tgz
+# Produces xenolith-bridge-0.4.0-rc.1.tgz for this development candidate.
+npm install --prefix /absolute/private/bridge-install ./xenolith-bridge-0.4.0-rc.1.tgz
 npm exec --prefix /absolute/private/bridge-install -- xenolith-bridge serve --socket /absolute/path/wire.sock
 ```
 
 A GitHub source-release `.tar.gz` can also be passed directly to `npm install`.
-Global installation is optional: `npm install -g ./xenolith-bridge-0.3.0.tgz`
+Global installation is optional: `npm install -g ./xenolith-bridge-0.4.0-rc.1.tgz`
 then `xenolith-bridge serve --socket /absolute/path/wire.sock`.
-The installable npm archive is distributed through GitHub Releases; the package
-has not been published to the npm registry. No credentials, runtime SDK, engine or model are bundled.
+Published installable archives are distributed through GitHub Releases; this
+development candidate has not been published. The package is not on the npm registry. No credentials, runtime SDK, engine or model are bundled.
+
+## Diagnose and report
+
+```sh
+xenolith-bridge doctor --socket /absolute/path/wire.sock
+xenolith-bridge doctor --socket /absolute/path/wire.sock --timeout-ms 3000 --report doctor-summary.json
+```
+
+`doctor` checks Node, the Unix socket and the engine's wire v1 `describe` reply.
+It reports context/output/frame limits and durable KV availability, then closes
+the connection. It does not create sessions, load a model or run inference.
+Exit status is 0 for a compatible reply and 1 on failure. A successful check
+establishes protocol reachability, not real-model or persistent-resume correctness.
+
+`--json` prints local diagnostic details; do not share that output as a report.
+`--report NEW_FILE` instead writes a field-limited summary without socket/model
+names, paths, raw errors, prompts or results. Files are created privately, existing
+files are never overwritten and nothing is uploaded. Review summaries before
+sharing: versions, capacity values and build hashes can identify an environment.
+
+The real acceptance battery writes a separate `release-summary.json` for sharing.
+To summarize an older private result:
+
+```sh
+xenolith-bridge report --input /private/release-result.json --output acceptance-summary.json
+```
+
+Summaries explicitly identify describe-only checks or self-reported real-engine
+results; they do not certify the engine or convert simulator evidence into real
+inference. See [acceptance and reporting](ACCEPTANCE.md) and
+[client compatibility and maintenance](COMPATIBILITY.md).
 
 ## Start the bridge
 

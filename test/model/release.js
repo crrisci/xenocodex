@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, realpath, readdir } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { startRealEngine, stop } from './engine.js';
+import { acceptanceSummary, writeReport } from '../../src/report.js';
 import { runAcceptance } from './api-acceptance.js';
 
 // Deliberately refuses the source checkout: validate an independently installed
@@ -15,7 +16,7 @@ const packageRoot = join(install, 'node_modules/xenolith-bridge');
 assert.notEqual(await realpath(packageRoot), await realpath('.'), 'Install a release archive; do not link the checkout');
 const pkg = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
 assert.equal(pkg.name, 'xenolith-bridge');
-const report = { mode: 'installed_release_real_engine', package_version: pkg.version, package_root: packageRoot,
+const report = { mode: 'installed_release_real_engine', node_version: process.versions.node, platform: process.platform, arch: process.arch, package_version: pkg.version, package_root: packageRoot,
   engine_binary: process.env.XENOLITH_BIN, model_path: process.env.XENOLITH_MODEL, started_at: new Date().toISOString() };
 async function sha256(path) {
   const hash = createHash('sha256');for await (const chunk of createReadStream(path)) hash.update(chunk);return hash.digest('hex');
@@ -63,6 +64,13 @@ try {
   report.status = 'failed';report.error = error.stack;process.exitCode = 1;console.error(error);
 } finally {
   await cleanup();report.finished_at = new Date().toISOString();
-  if (engine) await writeFile(join(engine.root, 'release-result.json'), JSON.stringify(report, null, 2));
+  if (engine) {
+    if (!report.cases) {
+      try { report.cases = JSON.parse(await readFile(join(engine.root, 'cases.json'), 'utf8')); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    await writeFile(join(engine.root, 'release-result.json'), JSON.stringify(report, null, 2));
+    await writeReport(join(engine.root, 'release-summary.json'), acceptanceSummary(report));
+  }
   console.log(`RELEASE_TEST_FINISHED ${report.status}`);
 }

@@ -5,15 +5,22 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startAdapter } from './server.js';
 import { providerArgs } from './config.js';
+import { doctor } from './doctor.js';
+import { exportAcceptance } from './report.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const help = `Xenolith Bridge ${version} — local Responses / Chat Completions / Xenolith v1 bridge
 
+  xenolith-bridge doctor --socket PATH [--timeout-ms N] [--json] [--report NEW_FILE]
+  xenolith-bridge report --input RELEASE_RESULT_JSON --output NEW_FILE
   xenolith-bridge serve --socket PATH [--port N] [--max-output-tokens N] [--reuse-kv] [--state-dir DIR]
   xenolith-bridge run --socket PATH --codex-home DIR [--reuse-kv] [--state-dir DIR] -- exec [Codex arguments]
 
 Connects to an existing engine; does not spawn or stop Xenolith.
+doctor only inspects the socket and describe capabilities; it does not run inference.
+report exports a field-limited acceptance summary without prompts, paths or raw errors.
+Reports are local files; nothing is uploaded. Existing report files are never overwritten.
 run uses an explicit isolated CODEX_HOME and does not load user config/rules.
 Responses supports text, function/custom tools and namespaces through JSON or SSE.
 Chat Completions supports text and function tools through JSON or SSE.
@@ -30,7 +37,31 @@ async function main(argv) {
   if (!argv.length || argv.includes('--help') || argv.includes('-h')) { console.log(help); return; }
   if (argv[0] === '--version') { console.log(`xenolith-bridge ${version}`); return; }
   const command = argv.shift();
-  if (!['serve', 'run'].includes(command)) throw new Error('Expected serve or run');
+  if (command === 'doctor' || command === 'report') {
+    const opts = {};
+    const allowed = command === 'doctor' ? ['--socket', '--timeout-ms', '--report'] : ['--input', '--output'];
+    while (argv.length) {
+      const flag = argv.shift();
+      if (flag === '--json' && command === 'doctor' && !opts.json) { opts.json = true;continue; }
+      if (!allowed.includes(flag) || !argv.length || opts[flag] !== undefined) throw Error(`Unknown, duplicate or incomplete option ${flag}`);
+      opts[flag] = argv.shift();
+    }
+    if (command === 'report') {
+      if (!opts['--input'] || !opts['--output']) throw Error('report requires --input and --output');
+      await exportAcceptance(resolve(opts['--input']), resolve(opts['--output']));
+      console.log('Acceptance summary written. No data was uploaded.');return;
+    }
+    if (!opts['--socket']) throw Error('doctor requires --socket');
+    const timeoutMs = Number(opts['--timeout-ms'] ?? 10000);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) throw Error('--timeout-ms must be an integer from 1 to 60000');
+    const result = await doctor({ socketPath: resolve(opts['--socket']), timeoutMs,
+      reportPath: opts['--report'] && resolve(opts['--report']), version });
+    console.log(opts.json ? JSON.stringify(result) : result.checks.map(c => `${c.name}: ${c.status}`).join('\n') + '\n' + result.message +
+      (result.info ? `\nContext: ${result.info.context_window}; max output: ${result.info.max_output}; max frame: ${result.info.max_frame}; durable KV: ${result.info.kvstore}.` : ''));
+    if (result.status !== 'passed') process.exitCode = 1;
+    return;
+  }
+  if (!['serve', 'run'].includes(command)) throw new Error('Expected doctor, report, serve or run');
   const options = {};
   let codexArgs = [];
   while (argv.length) {

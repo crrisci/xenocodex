@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0-rc.1 (unreleased)
+
+- Add `doctor` to inspect Node, Unix socket reachability and wire v1 capabilities without loading a model, creating sessions or generating text. Include a bounded deadline, machine-readable local output and nonzero failure status.
+- Add private, field-limited doctor/acceptance summaries and a `report` command. Exclude arbitrary native text, paths, model names, prompts and tool results; refuse overwrites. Preserve partial acceptance outcomes and distinguish self-reported real runs from describe-only checks.
+- Reject invalid native UTF-8 instead of silently replacing bytes. Discard buffered frames after wire failure and prevent queued replies/terminals from reporting success after corruption.
+- Add protocol fault coverage across both JSON/SSE APIs, checkpoint disconnections, queue/frame limits, cancellation deadlines and silent peers.
+- Document reference client versions and patch policy, add a bug report form and separate weekly/manual latest-client compatibility probes. The pinned client matrix remains the publication gate.
+- Prepare this candidate without claiming a new real-engine run. Persistent bindings remain experimental; the 0.3.0 real-engine evidence is historical.
+
 ## 0.3.0
 
 - Publish the documented Responses and Chat Completions text/tool contract as a stable GitHub release, with installable npm and source archives plus SHA256 sidecars. No runtime behavior changes since `0.3.0-rc.1`.

@@ -1,0 +1,50 @@
+name: Upcoming client compatibility
+on:
+  push:
+    paths:
+      - '.github/workflows/compatibility.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * 1'
+permissions:
+  contents: read
+jobs:
+  latest:
+    name: Latest ${{ matrix.client }} (early warning)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        client: [sdk, codex, aider]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        if: matrix.client == 'aider'
+        with:
+          python-version: '3.12'
+      - name: Latest official SDK
+        if: matrix.client == 'sdk'
+        timeout-minutes: 5
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sdk" --ignore-scripts openai@latest
+          npm ls --prefix "$RUNNER_TEMP/sdk" openai
+          XENOLITH_BRIDGE_OPENAI_SDK="$RUNNER_TEMP/sdk/node_modules/openai/index.mjs" npm run test:sdk
+      - name: Latest Codex
+        if: matrix.client == 'codex'
+        timeout-minutes: 10
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex" @openai/codex@latest
+          npm ls --prefix "$RUNNER_TEMP/codex" @openai/codex
+          XENOLITH_BRIDGE_CODEX_BIN="$RUNNER_TEMP/codex/node_modules/.bin/codex" npm run test:codex
+      - name: Latest Aider
+        if: matrix.client == 'aider'
+        timeout-minutes: 10
+        run: |
+          python -m venv "$RUNNER_TEMP/aider"
+          "$RUNNER_TEMP/aider/bin/python" -m pip install --disable-pip-version-check aider-chat
+          "$RUNNER_TEMP/aider/bin/python" -m pip show aider-chat
+          XENOLITH_BRIDGE_AIDER_PYTHON="$RUNNER_TEMP/aider/bin/python" npm run test:aider

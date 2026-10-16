@@ -53,6 +53,7 @@ export async function startFakeWire(root, { info = description, generate, afterA
         const request = JSON.parse(line);
         requests.push(request);
         if (faults?.[request.op]) {
+          if (faults[request.op] === 'silent') continue;
           if (faults[request.op] === 'disconnect') socket.destroy();else void send(faults[request.op]);
           continue;
         }
