@@ -52,7 +52,7 @@ test('Codex executes a file-reading tool and returns its unpredictable result fo
       returned = request.messages.find(m => m.role === 'tool');
       assert.equal(returned?.tool, 'exec_command');
       const resultNonce = returned.text.match(/XENO_[a-f0-9]{32}/)?.[0];
-      assert.ok(resultNonce, 'Final answer must come from the returned tool output');
+      assert.ok(resultNonce, 'Final answer must come from the returned tool output. Received: ' + returned.text);
       await send({ event: 'text_delta', text: 'Read: ' });
       await send({ event: 'text_delta', text: resultNonce });
       await send(done());
@@ -96,7 +96,7 @@ test('actual Codex history reuses a durable session and maps the native tool ID'
     } else {
       const returned = fake.requests.find(r => r.op === 'append' && r.role === 'tool');
       assert.equal(returned?.call_id, 53);
-      assert.ok(returned?.text.includes(nonce));
+      assert.ok(returned?.text.includes(nonce), 'Expected actual file result; received: ' + returned?.text);
       await send({ event: 'text_delta', text: nonce });
       await send(done());
     }

@@ -20,7 +20,7 @@ test('installed Codex compacts tool history and resumes it after client and adap
       await send(done('tool_use'));
     } else if (captured.at(-1).body.tools?.length === 0) {
       const history = fake.requests.filter(r => r.op === 'rebuild').at(-1).messages;
-      assert.ok(history.some(m => m.role === 'tool' && m.text.includes('ORCHID_6729')));
+      assert.ok(history.some(m => m.role === 'tool' && m.text.includes('ORCHID_6729')), 'Expected actual tool result in compact history: ' + JSON.stringify(history.filter(m => m.role === 'tool')));
       await send({ event: 'text_delta', text: 'The file input.txt contains ORCHID_6729. Read it with exec_command if needed.' });
       await send(done());
     } else {

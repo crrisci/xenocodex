@@ -39,7 +39,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/codex" @openai/codex@latest
           npm ls --prefix "$RUNNER_TEMP/codex" @openai/codex
-          XENOLITH_BRIDGE_CODEX_BIN="$RUNNER_TEMP/codex/node_modules/.bin/codex" npm run test:codex
+          XENOLITH_BRIDGE_CODEX_BIN="$RUNNER_TEMP/codex/node_modules/.bin/codex" npm run test:codex 2>&1 | tee .test-artifacts/latest-codex.log
       - name: Latest Aider
         if: matrix.client == 'aider'
         timeout-minutes: 10
@@ -48,3 +48,13 @@ jobs:
           "$RUNNER_TEMP/aider/bin/python" -m pip install --disable-pip-version-check aider-chat
           "$RUNNER_TEMP/aider/bin/python" -m pip show aider-chat
           XENOLITH_BRIDGE_AIDER_PYTHON="$RUNNER_TEMP/aider/bin/python" npm run test:aider
+      - name: Report Codex probe failure
+        if: failure() && matrix.client == 'codex'
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path('.test-artifacts/latest-codex.log')
+          if path.exists():
+              text = path.read_text()[-24000:]
+              print('::error title=Latest Codex details::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYCODE
